@@ -1,0 +1,143 @@
+---
+title: "eba_sims_data"
+author: "Esa Turkulainen"
+date: "1/13/2020"
+output: pdf_document
+---
+
+```{r setup, echo = FALSE}
+setwd("~/eba_sims/src")
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(plyr)
+library(lubridate)
+library(numbers)
+library(data.table)
+library(R.utils)
+library(forecast)
+source("pffunctions.R")
+```
+
+```{r load_data, echo = FALSE}
+load("~/eba_sims/data/20191211CollectionAmounts.rdata")
+```
+
+## Inspect data
+```{r inspect}
+summary(donation10)
+```
+
+```{r filtering_function, echo = FALSE}
+# Let's build a tool to filter quickly as we please
+# TODO: Let the user select multiple levels for each factor
+filter_donations <- function(data, 
+                             donor=NULL, donation13=NULL, site=NULL,
+                             date=NULL, phleb_start=NULL, status=NULL,
+                             donat_phleb=NULL, Hb=NULL, gender=NULL,
+                             dob=NULL, aborh=NULL, age=NULL,
+                             agegroup=NULL, Hb_deferral=NULL){
+  temp <- data
+  if(!is.null(donor)){
+    temp <- temp[temp$donor==donor,]
+  }
+  if(!is.null(donation13)){
+    temp <- temp[temp$donation13==donation13,]
+  }
+  if(!is.null(site)){
+    temp <- temp[temp$site==site,]
+  }
+  if(!is.null(date)){
+    temp <- temp[temp$date > date[1] & temp$date < date[1],]
+  }
+  if(!is.null(phleb_start)){
+    temp <- temp[temp$phleb_start==phleb_start,]
+  }
+  if(!is.null(status)){
+    temp <- temp[temp$status==status,]
+  }
+  if(!is.null(donat_phleb)){
+    temp <- temp[temp$donat_phleb==donat_phleb,]
+  }
+  if(!is.null(Hb)){
+    temp <- temp[temp$Hb > Hb[1] & temp$Hb < Hb[2],]
+  }
+  if(!is.null(gender)){
+    temp <- temp[temp$gender==gender,]
+  }
+  if(!is.null(site)){
+    temp <- temp[temp$site==site,]
+  }
+  if(!is.null(dob)){
+    temp <- temp[temp$dob > dob[1] & temp$dob < dob[2],]
+  }
+  if(!is.null(aborh)){
+    temp <- temp[temp$aborh==aborh,]
+  }
+  if(!is.null(age)){
+    temp <- temp[temp$age > age[1] & temp$age < age[2],]
+  }
+  if(!is.null(agegroup)){
+    temp <- temp[temp$agegroup==agegroup,]
+  }
+  if(!is.null(Hb_deferral)){
+    temp <- temp[temp$Hb_deferral==Hb_deferral,]
+  }
+  
+  return(temp)
+}
+```
+
+```{r filter_test}
+# Only donat_phleb="K" and status="-"
+dons <- filter_donations(data = donation10, donat_phleb = "K", status = "-")
+
+```
+
+```{r distribution_of_event_counts}
+eventcounts <- table(dons$donor)
+hist(eventcounts)
+```
+Sanity check: passed. (60 is the maximum number of donations in 10 years time)
+
+
+```{r}
+head(dons)
+```
+
+```{r}
+dons <- dons[with(dons, order(date)), ]
+firsts <- dons[!duplicated(dons$donor),]
+```
+
+```{r}
+firsts[1:20,]
+```
+
+```{r}
+counts <- data.frame()
+weeks <- c()
+for (i in 1:dim(firsts)[1]) {
+  stamp <- paste0(year(firsts[i,]$date), '.', week(firsts[i,]$date))
+  if(!(stamp %in% weeks)){
+    weeks <- c(weeks, stamp)
+    counts[stamp, "Count"] <- 1
+  }
+  else{
+    counts[stamp, "Count"] <- counts[stamp, "Count"] + 1
+  }
+}
+```
+
+```{r}
+ggplot(data = counts, aes(x=row.names(counts), y=Count)) + 
+  geom_point(color = "dark red") +
+  theme(axis.text.x = element_text(angle = 45)) +
+  scale_x_discrete(breaks=c("2010.1", "2011.1", "2012.1", "2013.1", "2014.1", "2015.1", "2016.1", "2017.1", "2018.1", "2019.1")) +
+  theme_bw() +
+  labs(title = "Number of weekly first time donations",
+       subtitle = "Assuming 2010 as anomalous, the weekly donations fall to the 500 range with small seasonality.",
+       x = "Weeks",
+       y = "Count")
+```
+
