@@ -10,6 +10,7 @@ setwd("~/eba_sims/src")
 library(ggplot2)
 library(gridExtra)
 library(knitr)
+library(dplyr)
 library(plyr)
 library(lubridate)
 library(numbers)
@@ -106,38 +107,73 @@ head(dons)
 ```
 
 ```{r}
+# Function to transfrom dates to year.week 
+yearweek <- function(x = Sys.Date()) {
+  xday <- ISOdate(year(x), month(x), day(x), tz=tz(x))
+  dn <- 1 + (wday(x) + 5)%%7
+  nth <- xday + ddays(4 - dn)
+  jan1 <- ISOdate(year(nth), 1, 1, tz=tz(x))
+  return(sprintf("%s.%d", format(nth, "%Y"), 1 + (nth - jan1)%/%ddays(7)))
+}
+```
+
+
+```{r}
+# Order donations by date
 dons <- dons[with(dons, order(date)), ]
+
+# Transform dates to yearweeks
+dons$date <- yearweek(dons$date)
+
+# Extract first time donations
 firsts <- dons[!duplicated(dons$donor),]
 ```
 
 ```{r}
+# Check
 firsts[1:20,]
 ```
-
 ```{r}
-counts <- data.frame()
-weeks <- c()
-for (i in 1:dim(firsts)[1]) {
-  stamp <- paste0(year(firsts[i,]$date), '.', week(firsts[i,]$date))
-  if(!(stamp %in% weeks)){
-    weeks <- c(weeks, stamp)
-    counts[stamp, "Count"] <- 1
-  }
-  else{
-    counts[stamp, "Count"] <- counts[stamp, "Count"] + 1
-  }
-}
+# Attempting vectorization of the processes below
+
+# Firsts
+first_count <- as.data.frame(table(factor(firsts$date, levels=unique(firsts$date))))
+# (We needed to call factor() to retain the chronological order of the rows)
+colnames(first_count) <- c("week", "firsts")
+
+# All
+all_count <- as.data.frame(table(factor(dons$date, levels=unique(dons$date))))
+colnames(all_count) <- c("week", "all")
 ```
 
 ```{r}
-ggplot(data = counts, aes(x=row.names(counts), y=Count)) + 
+# Combine into one neat df
+counts_df <- data.frame(week=first_count$week, 
+                        first=first_count$firsts, 
+                        all=all_count$all)
+```
+
+```{r}
+# Plot
+ggplot(data = counts_df, aes(x=week, y=first)) + 
   geom_point(color = "dark red") +
+  geom_point(aes(x=week, y=all), color = "pink") +
   theme(axis.text.x = element_text(angle = 45)) +
+  geom_abline(intercept = mean(counts_df[158:520,2]), slope=0) +
+  geom_abline(intercept = mean(counts_df[158:520,3]), slope=0) +
   scale_x_discrete(breaks=c("2010.1", "2011.1", "2012.1", "2013.1", "2014.1", "2015.1", "2016.1", "2017.1", "2018.1", "2019.1")) +
   theme_bw() +
-  labs(title = "Number of weekly first time donations",
-       subtitle = "Assuming 2010 as anomalous, the weekly donations fall to the 500 range with small seasonality.",
+  labs(title = "Number of weekly first time donations vs. all donations",
+       subtitle = paste0("Each week around ", round(mean(counts_df[158:520,2])/mean(counts_df[158:520,3])*100, 2), "%", " of all donations comprise first time donors (2013 onwards)."),
        x = "Weeks",
-       y = "Count")
+       y = "Count") +
+  annotate(geom="text", 
+           x="2019.1", 
+           y=mean(counts_df[158:520,2])+400, 
+           label=paste0("Firsts: ", round(mean(counts_df[158:520,2]), 1))) +
+  annotate(geom="text",
+           x="2019.1",
+           y=mean(counts_df[158:520,3])+400, 
+           label=paste0("All: ", round(mean(counts_df[158:520,3]), 1)))
 ```
 
