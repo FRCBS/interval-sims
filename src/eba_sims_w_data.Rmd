@@ -6,8 +6,9 @@ output: pdf_document
 ---
 
 ```{r setup, echo = FALSE}
-setwd("~/eba_sims/src")
+setwd("~/interval-sims/src")
 library(ggplot2)
+library(plotly)
 library(gridExtra)
 library(knitr)
 library(dplyr)
@@ -18,6 +19,7 @@ library(data.table)
 library(R.utils)
 library(forecast)
 source("pffunctions.R")
+source("helper_functions.R")
 ```
 
 ```{r load_data, echo = FALSE}
@@ -106,17 +108,6 @@ Sanity check: passed. (60 is the maximum number of donations in 10 years time)
 head(dons)
 ```
 
-```{r}
-# Function to transfrom dates to year.week 
-yearweek <- function(x = Sys.Date()) {
-  xday <- ISOdate(year(x), month(x), day(x), tz=tz(x))
-  dn <- 1 + (wday(x) + 5)%%7
-  nth <- xday + ddays(4 - dn)
-  jan1 <- ISOdate(year(nth), 1, 1, tz=tz(x))
-  return(sprintf("%s.%d", format(nth, "%Y"), 1 + (nth - jan1)%/%ddays(7)))
-}
-```
-
 
 ```{r}
 # Order donations by date
@@ -133,6 +124,7 @@ firsts <- dons[!duplicated(dons$donor),]
 # Check
 firsts[1:20,]
 ```
+
 ```{r}
 # Attempting vectorization of the processes below
 
@@ -176,4 +168,19 @@ ggplot(data = counts_df, aes(x=week, y=first)) +
            y=mean(counts_df[158:520,3])+400, 
            label=paste0("All: ", round(mean(counts_df[158:520,3]), 1)))
 ```
+
+## Cost analysis
+
+```{r}
+actual.deferral.rate <- 76565/2464190
+```
+
+```{r}
+p <- 0.031
+price_ratio <- 200
+surface <- cost_surface(p, price_ratio)
+plot_surface(surface, price_ratio, p)
+plot_interactive_surface(surface)
+```
+
 
