@@ -1,8 +1,38 @@
-generate_population <- function(n, prob){
-  rand <- runif(n)
-  population <- as.integer(rand <= prob)
+generate_pool_series <- function(num.levels, props, pool_size, days, exclusion.levels){
+  if(length(props) != num.levels){
+    stop(paste0("Length of proportions list does not match given number of levels: ", length(props)," != ", num.levels))
+  }
   
-  return(population)
+  levels <- 1:num.levels
+  elig.probs <- 1/exclusion.levels
+  
+  # Initialize population based on levels
+  population <- sample(levels, pool_size, replace = TRUE, prob = props)
+  
+  # Initialize series
+  init.days <- c()
+  for(donor in population){
+    days.until <- sample(0:(exclusion.levels[donor]-1), 1)
+    init.days <- c(init.days, days.until)
+  }
+  
+  # Initialize time series grid
+  pool.series.matrix <- matrix(, nrow = pool_size, ncol = days)
+  
+  # Construct series
+  i <- 0
+  for(donor.time in init.days){
+    i <- i + 1
+    donor.init <- rep(0, donor.time)
+    level.cycle <- c(rep(0, exclusion.levels[population[i]]), c(1))
+    if(days <= length(level.cycle)){
+      donor.series <- c(donor.init, level.cycle)[1:days]
+    } else{
+      donor.series <- c(donor.init, rep(level.cycle, ceiling(days/length(level.cycle))))[1:days]
+    }
+    pool.series.matrix[i, ] <- donor.series
+  }
+  return(pool.series.matrix)
 }
 
 # Function to transfrom dates to year.week 
@@ -14,7 +44,27 @@ yearweek <- function(x = Sys.Date()) {
   return(sprintf("%s.%d", format(nth, "%Y"), 1 + (nth - jan1)%/%ddays(7)))
 }
 
+savings_function <- function(p, q, response.rate, invite.price, deferral.price){
+  # This is for the current implementation: we are only aware of savings
+  cost <- (1/(1 - q - response.rate + q*response.rate) - 
+             1/(1 - p - response.rate + p*response.rate))*invite.price + 
+          (q/(1 - q) - p/(1 - p))*deferral.price
+  return(cost)
+}
+
+savings_effect <- function(p, response.rate, invite.price, deferral.price){
+  
+  TPR <- seq(0, 1, 0.01) # TRUE POSITIVE RATE
+  q.axis <- p - TPR*p
+  
+  # Savings effect
+  E <- savings_function(p, q.axis, response.rate, invite.price, deferral.price)
+  
+  return(E)
+}
+
 cost_surface <- function(p, price_ratio){
+  # DEPRECATED!!! WORKS BUT IS NOT CORRECT. DO NOT USE.
   
   # Cut FPR at 100x%
   x = 0.5
@@ -40,6 +90,7 @@ cost_surface <- function(p, price_ratio){
 }
 
 plot_surface <- function(surface, price_ratio, p){
+  # DEPRECATED!!! SEE cost_surface()!!
   x <- seq(0, (50-0.1), 0.5)
   y <- seq(0, 99, 1)
   data <- expand.grid(FPR=x, TPR=y)

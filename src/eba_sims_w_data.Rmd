@@ -175,12 +175,71 @@ ggplot(data = counts_df, aes(x=week, y=first)) +
 actual.deferral.rate <- 76565/2464190
 ```
 
-```{r}
+```{r savings effect, echo = FALSE}
+p <- actual.deferral.rate
+response.rate <- 1 - 1/10  # 10 invites -> 1 donor
+invite.price <- 0.5  # Guess
+deferral.price <- 30  # Guesstimate
+savings <- savings_effect(p, response.rate, invite.price, deferral.price)
+
+# Alternative p for comparison
+p2 <- 0.1
+alt.p <- savings_effect(p2, response.rate, invite.price, deferral.price)
+```
+
+```{r plot savings}
+savings.df <- data.frame(savings = savings, alt = alt.p)
+p <- ggplot(data = savings.df, aes(x = seq(0, 100, 1), y = -1*savings, color = "savings")) + 
+  geom_line() +
+  geom_line(aes(x = seq(0, 100, 1), y = -1*alt.p, color = "alt.p")) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(title = "Savings as a function of True Positive Rate",
+       subtitle = "p = 0.031 and p = 0.1, response.rate = 0.9, invite.price = 0.5, deferral.price = 30",
+       y = "Savings (€)",
+       x = "TPR") +
+  geom_text(aes(x = 100, y = 0.9, label = "p = 0.031", color = "savings")) +
+  geom_text(aes(x = 100, y = 3.5, label = "p = 0.1", color = "alt.p"))
+  
+p
+```
+
+
+```{r deprecated_roc_space, include = FALSE}
+# DEPRECATED!!! WORKS BUT IS INCORRECT. DO NOT USE.
 p <- 0.031
-price_ratio <- 200
+price_ratio <- 13.683
 surface <- cost_surface(p, price_ratio)
 plot_surface(surface, price_ratio, p)
 plot_interactive_surface(surface)
 ```
 
+# Storage level simulation
+```{r storage level}
+# Create "pool series" based on the following "selections"
+# We designate 5 different levels for donation intervals to approximate personalized donation intervals
+# This is a "male pool" in that we set the intervals at 30, 40, 60, 70 and 90 days (below and above the current)
+# We guess that those interval categories appear at rates 8, 12, 50, 20 and 10 percent
+# We run the series for 1 year (365 days)
+# We have a pool of 1000 invitees
+# To simplify, it is furthermore assumed that invites are sent with 100% response rate at earliest eligibility
+
+pool.series <- generate_pool_series(5, c(0.08, 0.12, 0.5, 0.20, 0.10), 1000, 365, c(30, 40, 60, 70, 90))
+# TODO: Non-discretize the above (build on distributions)
+
+# Let's simulate a 1000 realities with these parameters and find the worst case scenario
+realities.matrix <- matrix(, nrow = 1000, ncol = 365)
+for(i in 1:1000){
+  pool.series <- generate_pool_series(5, c(0.08, 0.12, 0.5, 0.20, 0.10), 1000, 365, c(30, 40, 60, 70, 90))
+  series <- colSums(pool.series)
+  realities.matrix[i, ] <- series
+}
+
+# Find worst cases
+worsts <- c()
+for(i in 1:1000){
+  worst <- min(realities.matrix[i, ][90:365])
+  worsts <- c(worsts, worst)
+}
+```
 
