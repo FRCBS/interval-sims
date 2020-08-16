@@ -63,50 +63,59 @@ savings_effect <- function(p, response.rate, invite.price, deferral.price){
   return(E)
 }
 
-cost_surface <- function(p, price_ratio){
-  # DEPRECATED!!! WORKS BUT IS NOT CORRECT. DO NOT USE.
-  
-  # Cut FPR at 100x%
-  x = 0.5
-  
-  # Set axis 
-  tp.axis <- seq(0, (p-p/100), p/100) # TPs go from 0 to p
-  fp.axis <- seq(0, (1-p)*x - ((1-p)*x)/100, ((1-p)*x)/100) # FPs need to be limited: they explode the cost (due to reinvites) approaching 1-p
-  
-  # Set grid
-  cost <- matrix(, nrow = length(tp.axis), ncol = length(fp.axis))
-  
-  tpi <- 0
-  for(Rtp in tp.axis){
-    tpi <- tpi + 1
-    fpi <- 0
-    for(Rfp in fp.axis){
-      fpi <- fpi + 1
-      E <- ((1/(1 - p - Rfp)) - (1/(1 - p))) + price_ratio * (((p - Rtp)/(1 - p - Rfp)) - (p/(1 - p)))
-      cost[tpi, fpi] <- E
-    }
+
+filter_donations <- function(data, 
+                             donor=NULL, donation13=NULL, site=NULL,
+                             date=NULL, phleb_start=NULL, status=NULL,
+                             donat_phleb=NULL, Hb=NULL, gender=NULL,
+                             dob=NULL, aborh=NULL, age=NULL,
+                             agegroup=NULL, Hb_deferral=NULL){
+  temp <- data
+  if(!is.null(donor)){
+    temp <- temp[temp$donor==donor,]
   }
-  return(cost)
-}
-
-plot_surface <- function(surface, price_ratio, p){
-  # DEPRECATED!!! SEE cost_surface()!!
-  x <- seq(0, (50-0.1), 0.5)
-  y <- seq(0, 99, 1)
-  data <- expand.grid(FPR=x, TPR=y)
-  data$Cost.effect <- as.vector(t(surface))
+  if(!is.null(donation13)){
+    temp <- temp[temp$donation13==donation13,]
+  }
+  if(!is.null(site)){
+    temp <- temp[temp$site==site,]
+  }
+  if(!is.null(date)){
+    temp <- temp[temp$date > date[1] & temp$date < date[1],]
+  }
+  if(!is.null(phleb_start)){
+    temp <- temp[temp$phleb_start==phleb_start,]
+  }
+  if(!is.null(status)){
+    temp <- temp[temp$status==status,]
+  }
+  if(!is.null(donat_phleb)){
+    temp <- temp[temp$donat_phleb==donat_phleb,]
+  }
+  if(!is.null(Hb)){
+    temp <- temp[temp$Hb > Hb[1] & temp$Hb < Hb[2],]
+  }
+  if(!is.null(gender)){
+    temp <- temp[temp$gender==gender,]
+  }
+  if(!is.null(site)){
+    temp <- temp[temp$site==site,]
+  }
+  if(!is.null(dob)){
+    temp <- temp[temp$dob > dob[1] & temp$dob < dob[2],]
+  }
+  if(!is.null(aborh)){
+    temp <- temp[temp$aborh==aborh,]
+  }
+  if(!is.null(age)){
+    temp <- temp[temp$age > age[1] & temp$age < age[2],]
+  }
+  if(!is.null(agegroup)){
+    temp <- temp[temp$agegroup==agegroup,]
+  }
+  if(!is.null(Hb_deferral)){
+    temp <- temp[temp$Hb_deferral==Hb_deferral,]
+  }
   
-  ggplot(data, aes(FPR, TPR, fill = Cost.effect)) + 
-    geom_tile() + 
-    
-    labs(title = "Cost Effect of Classifier in ROC Space",
-         subtitle = paste0("Using a price ratio of ", price_ratio, " and positive prevalence of ", p, ".")) +
-    geom_abline(intercept = 0, slope = 1, color="white") + 
-    theme_minimal() 
-}
-
-plot_interactive_surface <- function(surface){
-  p <- plot_ly(z = surface, type = "contour", contours=list(coloring = "heatmap"))
-  p <- p %>% layout(xaxis = list(title = "FPR"), yaxis = list(title = "TPR"), title="Cost surface in ROC space")
-  p
+  return(temp)
 }
