@@ -1,9 +1,11 @@
 ---
 title: "Subgroup cost analysis"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
-```{r setup, echo = FALSE}
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
 setwd("~/interval-sims/src")
 library(knitr)
 library(dplyr)
