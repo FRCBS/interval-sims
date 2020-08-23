@@ -31,70 +31,10 @@ load("~/eba_sims/data/20191211CollectionAmounts.rdata")
 summary(donation10)
 ```
 
-```{r filtering_function, echo = FALSE}
-# Let's build a tool to filter quickly as we please
-# TODO: Let the user select multiple levels for each factor
-filter_donations <- function(data, 
-                             donor=NULL, donation13=NULL, site=NULL,
-                             date=NULL, phleb_start=NULL, status=NULL,
-                             donat_phleb=NULL, Hb=NULL, gender=NULL,
-                             dob=NULL, aborh=NULL, age=NULL,
-                             agegroup=NULL, Hb_deferral=NULL){
-  temp <- data
-  if(!is.null(donor)){
-    temp <- temp[temp$donor==donor,]
-  }
-  if(!is.null(donation13)){
-    temp <- temp[temp$donation13==donation13,]
-  }
-  if(!is.null(site)){
-    temp <- temp[temp$site==site,]
-  }
-  if(!is.null(date)){
-    temp <- temp[temp$date > date[1] & temp$date < date[1],]
-  }
-  if(!is.null(phleb_start)){
-    temp <- temp[temp$phleb_start==phleb_start,]
-  }
-  if(!is.null(status)){
-    temp <- temp[temp$status==status,]
-  }
-  if(!is.null(donat_phleb)){
-    temp <- temp[temp$donat_phleb==donat_phleb,]
-  }
-  if(!is.null(Hb)){
-    temp <- temp[temp$Hb > Hb[1] & temp$Hb < Hb[2],]
-  }
-  if(!is.null(gender)){
-    temp <- temp[temp$gender==gender,]
-  }
-  if(!is.null(site)){
-    temp <- temp[temp$site==site,]
-  }
-  if(!is.null(dob)){
-    temp <- temp[temp$dob > dob[1] & temp$dob < dob[2],]
-  }
-  if(!is.null(aborh)){
-    temp <- temp[temp$aborh==aborh,]
-  }
-  if(!is.null(age)){
-    temp <- temp[temp$age > age[1] & temp$age < age[2],]
-  }
-  if(!is.null(agegroup)){
-    temp <- temp[temp$agegroup==agegroup,]
-  }
-  if(!is.null(Hb_deferral)){
-    temp <- temp[temp$Hb_deferral==Hb_deferral,]
-  }
-  
-  return(temp)
-}
-```
 
 ```{r filter_test}
 # Only donat_phleb="K" and status="-"
 dons <- filter_donations(data = donation10, donat_phleb = "K", status = "-")
-
 ```
 
 ```{r distribution_of_event_counts}
@@ -102,12 +42,6 @@ eventcounts <- table(dons$donor)
 hist(eventcounts)
 ```
 Sanity check: passed. (60 is the maximum number of donations in 10 years time)
-
-
-```{r}
-head(dons)
-```
-
 
 ```{r}
 # Order donations by date
@@ -121,13 +55,6 @@ firsts <- dons[!duplicated(dons$donor),]
 ```
 
 ```{r}
-# Check
-firsts[1:20,]
-```
-
-```{r}
-# Attempting vectorization of the processes below
-
 # Firsts
 first_count <- as.data.frame(table(factor(firsts$date, levels=unique(firsts$date))))
 # (We needed to call factor() to retain the chronological order of the rows)
@@ -169,77 +96,40 @@ ggplot(data = counts_df, aes(x=week, y=first)) +
            label=paste0("All: ", round(mean(counts_df[158:520,3]), 1)))
 ```
 
-## Cost analysis
+```{r}
+library(truncnorm)
+
+q <- seq(0, 0.031, 0.031/1000)
+x <- seq(1, 1.5, 1/10000)
+adjustments <- sort(round(rtruncnorm(n=length(q), a=1, b=1.5, mean=1.1, sd=0.1), digits = 4))
+E.matrix <- matrix(, nrow = 1001, ncol = 1001)
+Pm <- 2
+Pd <- 60 # from Satu
+rl <- 0
+Fn = 0.259 # Vuosikertomus 2019
+qalt <- seq(0, 0.06, 0.06/1000) # Larger q
+q <- seq(0, 0.031, 0.031/1000) # from data
+for(i in 1:1001){
+  Fratio <- adjustments[i] / (1 + Fn * (adjustments[i] - 1))
+  for(j in 1:1001){
+    Em <- Pm * (Fratio - 1 - q[j] * rl)
+    Ed <- Pd * q[j]
+    E.matrix[i, j] <- Em - Ed
+    }
+}
+
+E.long <- melt(E.matrix)
+
+```
 
 ```{r}
-actual.deferral.rate <- 76565/2464190
+colnames(E.long) <- c("adjustment", "q", "cost")
+ggplot(E.long, aes(x = q, y = adjustment, z = cost)) +
+geom_tile(aes(fill=cost)) +
+  stat_contour(color = "white", size = 0.7, bins = 2) +
+  scale_fill_gradientn(colours=c("blue", "red")) +
+labs(x="q%", y="Adjustment", title="Cost surface", subtitle = paste0("Surface minimum: ", round(min(E.long$cost), 2), ". Cost effect thresholds highlighted at 0 and -1 euros.")) +
+theme_bw() +
+scale_x_continuous(breaks = c(1, 1001), labels = c("0", "3.1")) +
+scale_y_continuous(breaks = c(1, 1001), labels = c(as.character(min(adjustments)), as.character(max(adjustments))))
 ```
-
-```{r savings effect, echo = FALSE}
-p <- actual.deferral.rate
-response.rate <- 1 - 1/10  # 10 invites -> 1 donor
-invite.price <- 0.5  # Guess
-deferral.price <- 30  # Guesstimate
-savings <- savings_effect(p, response.rate, invite.price, deferral.price)
-
-# Alternative p for comparison
-p2 <- 0.1
-alt.p <- savings_effect(p2, response.rate, invite.price, deferral.price)
-```
-
-```{r plot savings}
-savings.df <- data.frame(savings = savings, alt = alt.p)
-p <- ggplot(data = savings.df, aes(x = seq(0, 100, 1), y = -1*savings, color = "savings")) + 
-  geom_line() +
-  geom_line(aes(x = seq(0, 100, 1), y = -1*alt.p, color = "alt.p")) +
-  theme_minimal() +
-  theme(legend.position = "none") +
-  labs(title = "Savings as a function of True Positive Rate",
-       subtitle = "p = 0.031 and p = 0.1, response.rate = 0.9, invite.price = 0.5, deferral.price = 30",
-       y = "Savings (€)",
-       x = "TPR") +
-  geom_text(aes(x = 100, y = 0.9, label = "p = 0.031", color = "savings")) +
-  geom_text(aes(x = 100, y = 3.5, label = "p = 0.1", color = "alt.p"))
-  
-p
-```
-
-
-```{r deprecated_roc_space, include = FALSE}
-# DEPRECATED!!! WORKS BUT IS INCORRECT. DO NOT USE.
-p <- 0.031
-price_ratio <- 13.683
-surface <- cost_surface(p, price_ratio)
-plot_surface(surface, price_ratio, p)
-plot_interactive_surface(surface)
-```
-
-# Storage level simulation
-```{r storage level}
-# Create "pool series" based on the following "selections"
-# We designate 5 different levels for donation intervals to approximate personalized donation intervals
-# This is a "male pool" in that we set the intervals at 30, 40, 60, 70 and 90 days (below and above the current)
-# We guess that those interval categories appear at rates 8, 12, 50, 20 and 10 percent
-# We run the series for 1 year (365 days)
-# We have a pool of 1000 invitees
-# To simplify, it is furthermore assumed that invites are sent with 100% response rate at earliest eligibility
-
-pool.series <- generate_pool_series(5, c(0.08, 0.12, 0.5, 0.20, 0.10), 1000, 365, c(30, 40, 60, 70, 90))
-# TODO: Non-discretize the above (build on distributions)
-
-# Let's simulate a 1000 realities with these parameters and find the worst case scenario
-realities.matrix <- matrix(, nrow = 1000, ncol = 365)
-for(i in 1:1000){
-  pool.series <- generate_pool_series(5, c(0.08, 0.12, 0.5, 0.20, 0.10), 1000, 365, c(30, 40, 60, 70, 90))
-  series <- colSums(pool.series)
-  realities.matrix[i, ] <- series
-}
-
-# Find worst cases
-worsts <- c()
-for(i in 1:1000){
-  worst <- min(realities.matrix[i, ][90:365])
-  worsts <- c(worsts, worst)
-}
-```
-
