@@ -6,29 +6,19 @@ output: pdf_document
 ---
 
 ```{r setup, echo = FALSE}
-setwd("~/interval-sims/src")
+#setwd("~/interval-sims/src")
 library(ggplot2)
-library(plotly)
-library(gridExtra)
-library(knitr)
-library(dplyr)
-library(plyr)
-library(lubridate)
-library(numbers)
-library(data.table)
-library(R.utils)
-library(forecast)
-source("pffunctions.R")
-source("helper_functions.R")
+library(tidyverse)
+library(truncnorm)
 ```
 
 ```{r load_data, echo = FALSE}
-load("~/eba_sims/data/20191211CollectionAmounts.rdata")
+load("../data/20191211CollectionAmounts.rdata")
 ```
 
 ## Inspect data
 ```{r inspect}
-summary(donation10)
+lapply(donation10,class)
 ```
 
 
@@ -97,15 +87,14 @@ ggplot(data = counts_df, aes(x=week, y=first)) +
 ```
 
 ```{r}
-library(truncnorm)
 
 q <- seq(0, 0.032, 0.032/1000)
 adjustments <- seq(1, 2, 1/1000)
-E.matrix <- matrix(, nrow = 1001, ncol = 1001)
-Pm <- 2
-Pd <- 60 # from Satu
-rl <- 0
-Fn = 0.1066 # Data
+E.matrix <- matrix(nrow = 1001, ncol = 1001)
+Pm <- 2 # estimate collected from FRCBS experts
+Pd <- 60 # estimate collected from FRCBS experts
+rl <- 0 # estimated previously from data
+Fn = 0.1066 # estimated from data above round(mean(counts_df[158:520,2])/mean(counts_df[158:520,3]), 4)
 for(i in 1:1001){
   Fratio <- adjustments[i] / (1 + Fn * (adjustments[i] - 1))
   for(j in 1:1001){
@@ -115,7 +104,7 @@ for(i in 1:1001){
     }
 }
 
-E.long <- melt(E.matrix)
+E.long <- reshape2::melt(E.matrix)
 
 ```
 

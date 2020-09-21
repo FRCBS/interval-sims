@@ -2,25 +2,31 @@
 title: "Current model cost effect"
 author: "Esa Turkulainen"
 date: "8/25/2020"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
-setwd("~/interval-sims/src")
-library(knitr)
-library(dplyr)
-library(plyr)
-library(lubridate)
-library(numbers)
-library(data.table)
-library(R.utils)
-source("pffunctions.R")
+#setwd("~/interval-sims/src")
+library(tidyverse)
+library(truncnorm)
+library(caret)
 source("helper_functions.R")
 ```
 
 ```{r load_data, echo = FALSE}
-load("~/eba_sims/data/20191211CollectionAmounts.rdata")
+load("..//data/20191211CollectionAmounts.rdata")
 ```
+
+The data object donation10 contains donation history data from beginning of 2010 to end of 2019 it has following columns.
+
+
+```{r }
+lapply(donation10,class)
+```
+
+
 
 # Create subgroups from donation data
 ```{r subgroups}
@@ -64,10 +70,10 @@ fdr <- nrow(wfdef) / nrow(wdef)
 d <- nrow(wdef)/(nrow(wdef) + nrow(walldons))
 ```
 
-The current model finds 1653/2116 = 78.1% of deferrals. In addition, it misclassifies 22.57% of donations as deferrals.
+The current model finds 1662/2116 = 78.5% of deferrals. In addition, it misclassifies 21.45% of donations as deferrals.
 ```{r}
-TPR <- 0.781
-FPR <- 0.2257
+TPR <- 1662/2116
+FPR <- 1- (1662 /2116)
 # Find q
 q <- d * TPR
 # Find a for 6 month category
@@ -80,14 +86,18 @@ a6 <- 1 * ((1 - FPR) * (1 - d)) +
 a12 <- 1 * ((1 - FPR) * (1 - d)) + 
   6 * mr * (FPR * (1 - d)) + 4 * fr * (FPR * (1 - d)) + 
   6 * mdr * d + 4 * fdr * d
+TPR
+FPR
+a6
+a12
 ```
 
 # Final cost
 ```{r}
-Pm <- 2
-Pd <- 60 # from Satu
-rl <- 0
-Fn = 0.1066 # Data
+Pm <- 2 # estimate collected from FRCBS experts
+Pd <- 60 # estimate collected from FRCBS experts
+rl <- 0 # estimated previously from data
+Fn = 0.1066 # etimated from data in https://github.com/FRCBS/interval-sims/blob/master/src/eba_sims_w_data.Rmd 
 
 # a6
 Fratio <- a6 / (1 + Fn * (a6 - 1))
@@ -105,5 +115,137 @@ E12 <- Em - Ed
 ```{r}
 E6
 E12
+q
 ```
+
+
+# Plot final cost on data surface
+
+```{r}
+
+q.seq <- seq(0, 0.032, 0.032/1000)
+adjustments <- seq(1, 2, 1/1000)
+E.matrix <- matrix(nrow = 1001, ncol = 1001)
+Fn = 0.1066 # 
+for(i in 1:1001){
+  Fratio <- adjustments[i] / (1 + Fn * (adjustments[i] - 1))
+  for(j in 1:1001){
+    Em <- Pm * (Fratio - 1 - q.seq[j] * rl)
+    Ed <- Pd * q.seq[j]
+    E.matrix[i, j] <- Em - Ed
+    }
+}
+
+E.long <- reshape2::melt(E.matrix)
+
+```
+
+```{r}
+colnames(E.long) <- c("adjustment", "q", "cost")
+ggplot(E.long, aes(x = q, y = adjustment, z = cost)) +
+geom_tile(aes(fill=cost)) +
+  stat_contour(color = "white", size = 0.7, bins = 2) +
+  scale_fill_gradientn(colours=c("blue", "red")) +
+labs(x="q%", y="Adjustment", title="Cost surface (2018-2020)", subtitle = paste0("Surface minimum: ", round(min(E.long$cost), 2), ". Cost effect thresholds highlighted at 0 and -1 euros.", "\n", "Dots mark current model performance with a 6 or 12 month extension strategy.")) + 
+  annotate("point", x = head(which(q.seq > q ),1), y = which(adjustments > a6 & adjustments < (a6 + 0.001)), colour = "white", size = 2, alpha = 1) +
+  annotate("point", x = head(which(q.seq > q ),1), y = which(adjustments > a12 & adjustments < (a12 + 0.001)), colour = "white", size = 2, alpha = 1) +
+  annotate("text", x = head(which(q.seq > q ),1) - 40 , y = which(adjustments > a6 & adjustments < (a6 + 0.001)), label = "6", colour = "white") +
+  annotate("text", x = head(which(q.seq > q ),1) -40, y = which(adjustments > a12 & adjustments < (a12 + 0.001)), label = "12", colour = "white") +
+theme_bw() +
+scale_x_continuous(breaks = c(1, 1001), labels = c("0", "3.2")) +
+scale_y_continuous(breaks = c(1, 1001), labels = c(as.character(min(adjustments)), as.character(max(adjustments))))
+```
+
+
+#What if we use some other than the default cut-off for model class assingment
+
+```{r}
+#Load a data frame with observed classes and probability of deferral from  a classifier
+load("../data//rrfFit_roc_validate_probs.rdata")
+summary(df)
+```
+
+
+```{r}
+#cut prediction.probs with seq(0, 1, .1)
+x <- seq(0.1, .9, .1)
+pred.classes <- data.frame(matrix(nrow=nrow(df),ncol=length(x)))
+colnames(pred.classes) <- paste0("p_",x)
+for (i in x ) {
+  pred.classes[,paste0("p_",i)] <-  factor( df$Deferred <= i ,labels = c("Deferred","Accepted"))
+}
+
+head(pred.classes)
+```
+
+
+```{r}
+#count TPR and FPR for each probability
+s <- vector()
+#df$obs has factor levels in wrong
+df$obs <- relevel(df$obs,"Deferred")
+
+for(i in names(pred.classes)) {
+  conf <- caret::confusionMatrix(reference=df$obs, data=pred.classes[,i], positive = "Deferred",mode="everything")
+  #Sensitivity  = TPR
+  s <- c(s,conf$byClass['Sensitivity']) 
+}
+tprs <- tibble(probability = x,TPR=s,FPR=1-s)
+tprs
+```
+
+
+
+
+```{r}
+
+
+get_cost <- function(TPR, FPR,d.=d, mr.=mr,fr.=fr,mdr.=mdr,fdr.=fdr,Pm.=Pm,Pd.=Pd,Fn.=Fn,rl.=rl) {
+  q <- d * TPR
+  # Find a for 6 month category
+  # correctly predicted non-deferrals: 77.43% of the returning donations (all - d): (0.7743 * (1 - d))
+  # incorrectly predicted non-deferrals: 22.57% of the returning donations (all - d): (0.2257 * (1 - d))
+  a6 <- 1 * ((1 - FPR) * (1 - d.)) + 
+    3 * mr. * (FPR * (1 - d.)) + 2 * fr. * (FPR * (1 - d.)) + 
+    3 * mdr. * d. + 2 * fdr. * d.
+  
+  a12 <- 1 * ((1 - FPR) * (1 - d.)) + 
+    6 * mr. * (FPR * (1 - d.)) + 4 * fr. * (FPR * (1 - d.)) + 
+    6 * mdr. * d. + 4 * fdr. * d.
+  
+  # a6
+  Fratio <- a6 / (1 + Fn. * (a6 - 1))
+  Em <- Pm. * (Fratio - 1 - q * rl.)
+  Ed <- Pd. * q
+  E6 <- Em - Ed
+  
+  # a12
+  Fratio <- a12 / (1 + Fn. * (a12 - 1))
+  Em <- Pm. * (Fratio - 1 - q * rl.)
+  Ed <- Pd. * q
+  E12 <- Em - Ed
+  tibble(q=q,a6=a6,a12=a12,E6=E6,E12=E12)
+}
+
+#Do we get the same as before
+# > get_cost(TPR=1662/2116, FPR=1- (1662 /2116),d.=d, mr.=mr,fr.=fr,mdr.=mdr,fdr.=fdr,Pm.=Pm,Pd.=Pd,Fn.=Fn,rl.=rl) 
+# # A tibble: 1 x 5
+#        q    a6   a12     E6     E12
+#    <dbl> <dbl> <dbl>  <dbl>   <dbl>
+# 1 0.0257  1.35  1.93 -0.945 -0.0255
+#Yes
+
+tprs <- tprs %>% group_by(probability,TPR,FPR) %>%  do(get_cost(.$TPR,.$FPR) )
+
+
+```
+
+```{r}
+p <- ggplot(tprs)
+p <- p + geom_line(aes(x=probability,y=E6))
+p <- p + geom_line(aes(x=probability,y=E12)) + ylab("cost")
+p
+```
+
+
 
