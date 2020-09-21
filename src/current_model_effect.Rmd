@@ -1,0 +1,109 @@
+---
+title: "Current model cost effect"
+author: "Esa Turkulainen"
+date: "8/25/2020"
+output: html_document
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+setwd("~/interval-sims/src")
+library(knitr)
+library(dplyr)
+library(plyr)
+library(lubridate)
+library(numbers)
+library(data.table)
+library(R.utils)
+source("pffunctions.R")
+source("helper_functions.R")
+```
+
+```{r load_data, echo = FALSE}
+load("~/eba_sims/data/20191211CollectionAmounts.rdata")
+```
+
+# Create subgroups from donation data
+```{r subgroups}
+# All successful whole blood donations
+dons <- filter_donations(data = donation10, donat_phleb = "K", status = "-")
+# Order donations by date
+dons <- dons[with(dons, order(date)), ]
+# Find only returning donors
+rdons <- dons[duplicated(dons$donor),]
+
+# Successful male
+mdon <- filter_donations(data = rdons, donat_phleb = "K", status = "-", gender = "Men")
+# Successful female
+fdon <- filter_donations(data = rdons, donat_phleb = "K", status = "-", gender = "Women")
+# Deferrals
+def <- filter_donations(data = donation10, donat_phleb = "*", Hb_deferral = 1)
+mdef <- filter_donations(data = def, gender = "Men")
+fdef <- filter_donations(data = def, gender = "Women")
+
+# Windows
+walldons <- subset(dons, date >= "2018-01-01" & date <= "2019-12-30")
+wdons <- subset(rdons, date >= "2018-01-01" & date <= "2019-12-30")
+wmdon <- subset(mdon, date >= "2018-01-01" & date <= "2019-12-30")
+wfdon <- subset(fdon, date >= "2018-01-01" & date <= "2019-12-30")
+wdef <- subset(def, date >= "2018-01-01" & date <= "2019-12-30")
+wmdef <- subset(mdef, date >= "2018-01-01" & date <= "2019-12-30")
+wfdef <- subset(fdef, date >= "2018-01-01" & date <= "2019-12-30")
+```
+
+# Find ratios
+```{r}
+# Male ratio
+mr <- nrow(wmdon)/nrow(wdons)
+# Female ratio
+fr <- nrow(wfdon)/nrow(wdons)
+# Male deferral ratio
+mdr <- nrow(wmdef) / nrow(wdef)
+# Female deferral ratio
+fdr <- nrow(wfdef) / nrow(wdef)
+# Total deferral prevalence
+d <- nrow(wdef)/(nrow(wdef) + nrow(walldons))
+```
+
+The current model finds 1653/2116 = 78.1% of deferrals. In addition, it misclassifies 22.57% of donations as deferrals.
+```{r}
+TPR <- 0.781
+FPR <- 0.2257
+# Find q
+q <- d * TPR
+# Find a for 6 month category
+# correctly predicted non-deferrals: 77.43% of the returning donations (all - d): (0.7743 * (1 - d))
+# incorrectly predicted non-deferrals: 22.57% of the returning donations (all - d): (0.2257 * (1 - d))
+a6 <- 1 * ((1 - FPR) * (1 - d)) + 
+  3 * mr * (FPR * (1 - d)) + 2 * fr * (FPR * (1 - d)) + 
+  3 * mdr * d + 2 * fdr * d
+
+a12 <- 1 * ((1 - FPR) * (1 - d)) + 
+  6 * mr * (FPR * (1 - d)) + 4 * fr * (FPR * (1 - d)) + 
+  6 * mdr * d + 4 * fdr * d
+```
+
+# Final cost
+```{r}
+Pm <- 2
+Pd <- 60 # from Satu
+rl <- 0
+Fn = 0.1066 # Data
+
+# a6
+Fratio <- a6 / (1 + Fn * (a6 - 1))
+Em <- Pm * (Fratio - 1 - q * rl)
+Ed <- Pd * q
+E6 <- Em - Ed
+
+# a12
+Fratio <- a12 / (1 + Fn * (a12 - 1))
+Em <- Pm * (Fratio - 1 - q * rl)
+Ed <- Pd * q
+E12 <- Em - Ed
+```
+
+```{r}
+E6
+E12
+```
+

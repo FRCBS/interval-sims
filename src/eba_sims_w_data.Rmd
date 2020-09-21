@@ -99,16 +99,13 @@ ggplot(data = counts_df, aes(x=week, y=first)) +
 ```{r}
 library(truncnorm)
 
-q <- seq(0, 0.031, 0.031/1000)
-x <- seq(1, 1.5, 1/10000)
-adjustments <- sort(round(rtruncnorm(n=length(q), a=1, b=1.5, mean=1.1, sd=0.1), digits = 4))
+q <- seq(0, 0.032, 0.032/1000)
+adjustments <- seq(1, 2, 1/1000)
 E.matrix <- matrix(, nrow = 1001, ncol = 1001)
 Pm <- 2
 Pd <- 60 # from Satu
 rl <- 0
-Fn = 0.259 # Vuosikertomus 2019
-qalt <- seq(0, 0.06, 0.06/1000) # Larger q
-q <- seq(0, 0.031, 0.031/1000) # from data
+Fn = 0.1066 # Data
 for(i in 1:1001){
   Fratio <- adjustments[i] / (1 + Fn * (adjustments[i] - 1))
   for(j in 1:1001){
@@ -128,8 +125,21 @@ ggplot(E.long, aes(x = q, y = adjustment, z = cost)) +
 geom_tile(aes(fill=cost)) +
   stat_contour(color = "white", size = 0.7, bins = 2) +
   scale_fill_gradientn(colours=c("blue", "red")) +
-labs(x="q%", y="Adjustment", title="Cost surface", subtitle = paste0("Surface minimum: ", round(min(E.long$cost), 2), ". Cost effect thresholds highlighted at 0 and -1 euros.")) +
+labs(x="q%", y="Adjustment", title="Cost surface (2018-2020)", subtitle = paste0("Surface minimum: ", round(min(E.long$cost), 2), ". Cost effect thresholds highlighted at 0 and -1 euros.", "\n", "Dots mark current model performance with a 6 or 12 month extension strategy.")) + 
+  annotate("point", x = 800, y = which(adjustments > 1.3619 & adjustments < (1.3619 + 0.001)), colour = "white", size = 2, alpha = 1) +
+  annotate("point", x = 800, y = which(adjustments > 1.9749 & adjustments < (1.9749 + 0.001)), colour = "white", size = 2, alpha = 1) +
+  annotate("text", x = 760, y = which(adjustments > 1.3619 & adjustments < (1.3619 + 0.001)), label = "6", colour = "white") +
+  annotate("text", x = 760, y = which(adjustments > 1.9749 & adjustments < (1.9749 + 0.001)), label = "12", colour = "white") +
 theme_bw() +
-scale_x_continuous(breaks = c(1, 1001), labels = c("0", "3.1")) +
+scale_x_continuous(breaks = c(1, 1001), labels = c("0", "3.2")) +
 scale_y_continuous(breaks = c(1, 1001), labels = c(as.character(min(adjustments)), as.character(max(adjustments))))
 ```
+
+
+
+
+
+
+
+
+
