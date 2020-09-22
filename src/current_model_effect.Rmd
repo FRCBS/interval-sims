@@ -172,12 +172,15 @@ x <- seq(0.1, .9, .1)
 pred.classes <- data.frame(matrix(nrow=nrow(df),ncol=length(x)))
 colnames(pred.classes) <- paste0("p_",x)
 for (i in x ) {
-  pred.classes[,paste0("p_",i)] <-  factor( df$Deferred <= i ,labels = c("Deferred","Accepted"))
+  pred.classes[,paste0("p_",i)] <-  factor( df$Deferred >= i ,labels = c("Accepted","Deferred"))
 }
 
 head(pred.classes)
 ```
 
+```{r}
+summary(pred.classes)
+```
 
 ```{r}
 #count TPR and FPR for each probability
@@ -237,7 +240,7 @@ get_cost <- function(TPR, FPR,d.=d, mr.=mr,fr.=fr,mdr.=mdr,fdr.=fdr,Pm.=Pm,Pd.=P
 
 tprs <- tprs %>% group_by(probability,TPR,FPR) %>%  do(get_cost(.$TPR,.$FPR) )
 
-
+tprs
 ```
 
 ```{r}
