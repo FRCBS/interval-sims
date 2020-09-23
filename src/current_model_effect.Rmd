@@ -14,6 +14,7 @@ library(truncnorm)
 library(caret)
 library(boot)
 source("helper_functions.R")
+set.seed(123)
 ```
 
 ```{r load_data, echo = FALSE}
@@ -69,6 +70,11 @@ mdr <- nrow(wmdef) / nrow(wdef)
 fdr <- nrow(wfdef) / nrow(wdef)
 # Total deferral prevalence
 d <- nrow(wdef)/(nrow(wdef) + nrow(walldons))
+mr
+fr
+mdr
+fdr
+d
 ```
 
 The current model finds 1662/2116 = 78.5% of deferrals. In addition, it misclassifies 22.4% of donations as deferrals.
@@ -279,10 +285,10 @@ tprs
 
 ```{r}
 
-d <- tprs %>% ungroup() %>% select(probability,E6,E12) %>% pivot_longer(cols=c(E6,E12)) %>% mutate(name=gsub("^E",'',name))
+tprs.plot <- tprs %>% ungroup() %>% select(probability,E6,E12) %>% pivot_longer(cols=c(E6,E12)) %>% mutate(name=gsub("^E",'',name))
 
 size <- 2
-p <- ggplot(d)
+p <- ggplot(tprs.plot)
 p <- p + geom_line(aes(x=probability,y=value,col=name)) + ylab("Cost effect (€ / donation)") + xlab("Probability of deferral cut-off") + labs(color="Deferral length (mo)")
 p <- p + geom_point(aes( y =tprs$E6[which(tprs$E6 == min(tprs$E6))] , x = tprs$probability[which(tprs$E6 == min(tprs$E6))] ))
 p <- p + geom_label(aes( y =tprs$E6[which(tprs$E6 == min(tprs$E6))] , x = tprs$probability[which(tprs$E6 == min(tprs$E6))] , label = paste0("p=",round(tprs$probability[which(tprs$E6 == min(tprs$E6))],2) , " ; ",  round(tprs$E6[which(tprs$E6 == min(tprs$E6))],2)," €")), nudge_y=0.2,size=size)
@@ -295,29 +301,110 @@ ggsave(filename="../results/cme_prob_cut_curve.pdf", p, width = 90,  height = 80
 
 
 Using a bit heigher than the default cut-off  appears slightly better.
+
+# Bootstrap cost confidence intervals
+
 Let's bootstrap predictions to create error estimates for the predictions and subsequently on the cost effects.
 
 ```{r}
-
+#Define functions
 # https://www.painblogr.org/2017-10-18-purrring-through-bootstraps.html
-get_cost <- function(data, boot_ind){
+boot_cost <- function(boot_data, boot_ind, prob.cut = 0.6){
+  #sample
+    boot_data <- boot_data[boot_ind,]
   #classify predictions
+    pred.class <- factor( boot_data$Deferred >= prob.cut)
+    levels(pred.class ) <- c("Accepted","Deferred")
   #get TPR and FPR
-    conf <- caret::confusionMatrix(reference=df$obs, data=pred.classes[,i], positive = "Deferred",mode="everything")
+    conf <- caret::confusionMatrix(reference=boot_data$obs, data=pred.class, positive = "Deferred",mode="sens_spec")
     sen <- conf$byClass['Sensitivity'] 
     spe <- 1- conf$byClass['Specificity'] 
-#gte cost
-    get_cost(TPR=sen, FPR=spe,d.=d, mr.=mr,fr.=fr,mdr.=mdr,fdr.=fdr,Pm.=Pm,Pd.=Pd,Fn.=Fn,rl.=rl) 
-  
-  
-  
-#    return(coef(fit))
+  #get cost
+#    cat(sen,spe,"\n")
+     c <- get_cost(TPR=sen, FPR=spe,d.=d, mr.=mr,fr.=fr,mdr.=mdr,fdr.=fdr,Pm.=Pm,Pd.=Pd,Fn.=Fn,rl.=rl)
+     c <- as.vector(t(c))
+     names(c) <- c('q','a6','a12','E6','E12')
+  return(c)
 }
 
-fit_boot <- boot(data, statistic= get_coefficients, R = nb_boot)
-fit_boot_Bca <- compute_Bca_CI(fit_boot)
+compute_CI <-function(fit_boot){
+  CI_inf = rep(0, length(fit_boot$t0))
+  CI_sup = rep(0, length(fit_boot$t0))
+  for (i_regressor in 1:length(fit_boot$t0)){
+    #https://stackoverflow.com/questions/6791290/r-boot-package-not-enough-memory-to-get-confidence-intervals
+    #CI <- boot.ci(fit_boot, type = "bca", index=i_regressor)
+    #Bca_inf[i_regressor] <- CI$bca[4] # N.B type = 'normal' has 3 columns, while the other types 5 columns
+    #Bca_sup[i_regressor] <- CI$bca[5] #
+    #there is just too much data for bca to be used
+    CI <- boot.ci(fit_boot, type = "norm", index=i_regressor)
+    CI_inf[i_regressor] <- CI$normal[2]
+    CI_sup[i_regressor] <- CI$normal[3]
+  }
+  return(tibble(variable = names(fit_boot$t0),CI_inf,CI_sup))
+}
+```
+
+
+```{r}
+
+nb_boot <- 1000
+fit_boot <- boot(df,prob.cut=0.6, statistic= boot_cost, R = nb_boot)
+p6.ci <- compute_CI(fit_boot)
+
+fit_boot <- boot(df,prob.cut=0.8, statistic= boot_cost, R = nb_boot)
+p8.ci <- compute_CI(fit_boot)
+
+p6.ci
+```
 
 
 
+```{r}
+p8.ci
+```
+
+
+```{r}
+#a and q values do not come from tprs! they are not optimised
+
+colnames(E.long) <- c("adjustment", "q", "cost")
+p <- ggplot(E.long, aes(x = q, y = adjustment, z = cost)) +
+  geom_tile(aes(fill=cost)) +
+  stat_contour(color = "black", size = 0.7, bins = 2) +
+  scale_fill_gradientn(colours=c("blue", "red")) +
+  labs(x="q% i.e. deferral rate", y="Adjustment \n i.e. donation interval co-efficient ")  + 
+  annotate("point", x = head(which(q.seq > q ),1), y = which(adjustments > a6 & adjustments < (a6 + 0.001)), colour = "white", size = 2, alpha = 1) +
+  annotate("point", x = head(which(q.seq > q ),1), y = which(adjustments > a12 & adjustments < (a12 + 0.001)), colour = "white", size = 2, alpha = 1) +
+  theme_bw() +
+  scale_x_continuous(breaks = c(1, 1001), labels = c("0", "3.2")) +
+  scale_y_continuous(breaks = c(1, 1001), labels = c(as.character(min(adjustments)), as.character(max(adjustments))))
+#Add numeric values of costs with optimised classifier probability cut-offs
+p <- p + annotate("text" ,
+                  x = head(which(q.seq > q ),1) , 
+                  y = head(which(adjustments > a6),1) - 50,
+                  label = paste0("6 mo: ", round(tprs$E6[which(tprs$E6 == min(tprs$E6))],2),'(',round(deframe(p6.ci[4,2]),2)," - ",round(deframe(p6.ci[4,3]),2),') €'  ),
+                  colour = "white")
+
+p <- p + annotate("text" ,
+                  x = head(which(q.seq > q ),1) , 
+                  y = head(which(adjustments > a12),1) - 50,
+                  label = paste0("12 mo: ", round(tprs$E12[which(tprs$E12 == min(tprs$E12))],2),'(',round(deframe(p8.ci[5,2]),2)," - ",round(deframe(p8.ci[5,3]),2),') €'  ),
+                  colour = "white")
+
+
+#Add error bars of q and a
+# p <- p + annotate("text" ,
+#                   x = head(which(q.seq > q ),1) , 
+#                   y = head(which(adjustments > a12),1) - 50,
+#                   label = paste0("12 mo: ", round(E12,2),'(',round(deframe(p8.ci[5,2]),2)," - ",round(deframe(p8.ci[5,3]),2),') €'  ),
+#                   colour = "white")
+p <- p + labs(color="Cost per donation (€)")
+p
+ggsave(filename="../results/cme_cost_surface_werr.pdf",  width = 180,  height = 120,units="mm", dpi=600, scale=1.0,encoding = "ISOLatin9.enc")
+```
+
+
+```{r}
+labs(x="q%", y="Adjustment", title="Cost surface (2018-2020)", subtitle = paste0("Surface minimum: ", round(min(E.long$cost), 2), ". Cost effect thresholds highlighted at 0 and -1 euros.", "\n", "Dots mark current model performance with a 6 or 12 month extension strategy."))
 ```
 
