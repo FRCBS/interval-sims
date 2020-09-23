@@ -1,7 +1,7 @@
 ---
 title: "Current model cost effect"
-author: "Esa Turkulainen"
-date: "8/25/2020"
+author: "Esa Turkulainen & Mikko Arvas"
+date: "`r Sys.time()`"
 output:
   pdf_document: default
   html_document: default
@@ -15,13 +15,16 @@ library(caret)
 library(boot)
 source("helper_functions.R")
 set.seed(123)
+#echo "rmarkdown::render('current_model_effect.Rmd', clean=TRUE,output_format='pdf_document',output_file='../results/current_model_effect.pdf')" | R --slave
 ```
+
+# Calculate parameters from donation history data
 
 ```{r load_data, echo = FALSE}
 load("..//data/20191211CollectionAmounts.rdata")
 ```
 
-The data object donation10 contains donation history data from beginning of 2010 to end of 2019 it has following columns.
+The data object donation10 contains donation history data from beginning of 2010 to end of 2019. It has the following columns.
 
 
 ```{r }
@@ -30,7 +33,7 @@ lapply(donation10,class)
 
 
 
-# Create subgroups from donation data
+## Create subgroups from donation data
 ```{r subgroups}
 # All successful whole blood donations
 dons <- filter_donations(data = donation10, donat_phleb = "K", status = "-")
@@ -58,7 +61,7 @@ wmdef <- subset(mdef, date >= "2018-01-01" & date <= "2019-12-30")
 wfdef <- subset(fdef, date >= "2018-01-01" & date <= "2019-12-30")
 ```
 
-# Find ratios
+## Find ratios from data
 ```{r}
 # Male ratio
 mr <- nrow(wmdon)/nrow(wdons)
@@ -77,7 +80,9 @@ fdr
 d
 ```
 
-The current model finds 1662/2116 = 78.5% of deferrals. In addition, it misclassifies 22.4% of donations as deferrals.
+# Find interval adjustments from ratios and model metrics
+
+The current model finds in validation data 1662/2116 = 78.5% of deferrals. In addition, it misclassifies 22.4% of donations as deferrals.
 ```{r}
 # > conf
 # Confusion Matrix and Statistics
@@ -91,8 +96,8 @@ FPR <- 9137 / (31719 + 9137) # 22.4%
 # Find q
 q <- d * TPR
 # Find a for 6 month category
-# correctly predicted non-deferrals: 77.43% of the returning donations (all - d): (0.7743 * (1 - d))
-# incorrectly predicted non-deferrals: 22.57% of the returning donations (all - d): (0.2257 * (1 - d))
+# correctly predicted non-deferrals: 78.5% of the returning donations (all - d): (0.785 * (1 - d))
+# incorrectly predicted non-deferrals: 22.4% of the returning donations (all - d): (0.224 * (1 - d))
 a6 <- 1 * ((1 - FPR) * (1 - d)) + 
   3 * mr * (FPR * (1 - d)) + 2 * fr * (FPR * (1 - d)) + 
   3 * mdr * d + 2 * fdr * d
@@ -111,7 +116,7 @@ a12
 Pm <- 2 # estimate collected from FRCBS experts
 Pd <- 60 # estimate collected from FRCBS experts
 rl <- 0 # estimated previously from data
-Fn = 0.1066 # etimated from data in https://github.com/FRCBS/interval-sims/blob/master/src/eba_sims_w_data.Rmd 
+Fn = 0.1066 # estimated from donation history data in here https://github.com/FRCBS/interval-sims/blob/master/src/eba_sims_w_data.Rmd 
 
 # a6
 Fratio <- a6 / (1 + Fn * (a6 - 1))
@@ -172,7 +177,7 @@ ggsave(filename="../results/cme_cost_surface.pdf",  width = 180,  height = 120,u
 ```
 
 
-#What if we use some other than the default cut-off for model class assingment
+# What if we use some other than the default cut-off for model class assingment
 
 ```{r}
 #Load a data frame with observed classes and probability of deferral from  a classifier
@@ -180,6 +185,7 @@ load("../data//rrfFit_roc_validate_probs.rdata")
 summary(df)
 ```
 
+## Create different cuts
 
 ```{r}
 #cut prediction.probs with seq(0, 1, .1)
@@ -197,12 +203,12 @@ head(pred.classes)
 summary(pred.classes)
 ```
 
+# Count TPR and FPR for each probability cut-off
+
 ```{r}
-#count TPR and FPR for each probability
+
 sen <- vector()
 spe <- vector()
-#df$obs has factor levels in wrong
-#df$obs <- relevel(df$obs,"Deferred")
 
 for(i in names(pred.classes)) {
   conf <- caret::confusionMatrix(reference=df$obs, data=pred.classes[,i], positive = "Deferred",mode="everything")
@@ -233,9 +239,6 @@ tprs
 
 get_cost <- function(TPR, FPR,d.=d, mr.=mr,fr.=fr,mdr.=mdr,fdr.=fdr,Pm.=Pm,Pd.=Pd,Fn.=Fn,rl.=rl) {
   q <- d * TPR
-  # Find a for 6 month category
-  # correctly predicted non-deferrals: 77.43% of the returning donations (all - d): (0.7743 * (1 - d))
-  # incorrectly predicted non-deferrals: 22.57% of the returning donations (all - d): (0.2257 * (1 - d))
   a6 <- 1 * ((1 - FPR) * (1 - d.)) + 
     3 * mr. * (FPR * (1 - d.)) + 2 * fr. * (FPR * (1 - d.)) + 
     3 * mdr. * d. + 2 * fdr. * d.
@@ -266,24 +269,15 @@ get_cost <- function(TPR, FPR,d.=d, mr.=mr,fr.=fr,mdr.=mdr,fdr.=fdr,Pm.=Pm,Pd.=P
 # 1 0.0257  1.36  1.97 -0.923 0.0256
 #Yes
 
-# > get_cost(TPR=0/2116, FPR=1- (0 /2116),d.=d, mr.=mr,fr.=fr,mdr.=mdr,fdr.=fdr,Pm.=Pm,Pd.=Pd,Fn.=Fn,rl.=rl) 
-# # A tibble: 1 x 5
-#       q    a6   a12    E6   E12
-#   <dbl> <dbl> <dbl> <dbl> <dbl>
-# 1     0  2.47  4.93  2.26  4.95
-# > get_cost(TPR=2116/2116, FPR=1- (2116 /2116),d.=d, mr.=mr,fr.=fr,mdr.=mdr,fdr.=fdr,Pm.=Pm,Pd.=Pd,Fn.=Fn,rl.=rl) 
-# # A tibble: 1 x 5
-#        q    a6   a12    E6   E12
-#    <dbl> <dbl> <dbl> <dbl> <dbl>
-# 1 0.0327  1.04  1.11 -1.89 -1.76
-#Yes, perfect model would give best savings
 
 tprs <- tprs %>% group_by(probability,TPR,FPR) %>%  do(get_cost(.$TPR,.$FPR) )
 
 tprs
 ```
 
-```{r}
+## Plot effect of probability cut-offs
+
+```{r , warning=FALSE}
 
 tprs.plot <- tprs %>% ungroup() %>% select(probability,E6,E12) %>% pivot_longer(cols=c(E6,E12)) %>% mutate(name=gsub("^E",'',name))
 
@@ -291,16 +285,16 @@ size <- 2
 p <- ggplot(tprs.plot)
 p <- p + geom_line(aes(x=probability,y=value,col=name)) + ylab("Cost effect (€ / donation)") + xlab("Probability of deferral cut-off") + labs(color="Deferral length (mo)")
 p <- p + geom_point(aes( y =tprs$E6[which(tprs$E6 == min(tprs$E6))] , x = tprs$probability[which(tprs$E6 == min(tprs$E6))] ))
-p <- p + geom_label(aes( y =tprs$E6[which(tprs$E6 == min(tprs$E6))] , x = tprs$probability[which(tprs$E6 == min(tprs$E6))] , label = paste0("p=",round(tprs$probability[which(tprs$E6 == min(tprs$E6))],2) , " ; ",  round(tprs$E6[which(tprs$E6 == min(tprs$E6))],2)," €")), nudge_y=0.2,size=size)
+p <- p + geom_label(aes( y =tprs$E6[which(tprs$E6 == min(tprs$E6))] , x = tprs$probability[which(tprs$E6 == min(tprs$E6))] , label = paste0("p>=",round(tprs$probability[which(tprs$E6 == min(tprs$E6))],2) , " ; ",  round(tprs$E6[which(tprs$E6 == min(tprs$E6))],2)," €")), nudge_y=0.2,size=size)
 p <- p + geom_point(aes( y =tprs$E12[which(tprs$E12 == min(tprs$E12))] , x = tprs$probability[which(tprs$E12 == min(tprs$E12))] ))
-p <- p + geom_label(aes( y =tprs$E12[which(tprs$E12 == min(tprs$E12))] , x = tprs$probability[which(tprs$E12 == min(tprs$E12))] , label = paste0("p=",round(tprs$probability[which(tprs$E12 == min(tprs$E12))],2) , " ; ",  round(tprs$E12[which(tprs$E12 == min(tprs$E12))],2)," €")), nudge_y=0.2,size=size)
+p <- p + geom_label(aes( y =tprs$E12[which(tprs$E12 == min(tprs$E12))] , x = tprs$probability[which(tprs$E12 == min(tprs$E12))] , label = paste0("p>=",round(tprs$probability[which(tprs$E12 == min(tprs$E12))],2) , " ; ",  round(tprs$E12[which(tprs$E12 == min(tprs$E12))],2)," €")), nudge_y=0.2,size=size)
 p <- p + theme(legend.position="bottom")
 p
 ggsave(filename="../results/cme_prob_cut_curve.pdf", p, width = 90,  height = 80,units="mm", dpi=600, scale=1.0,encoding = "ISOLatin9.enc")
 ```
 
 
-Using a bit heigher than the default cut-off  appears slightly better.
+Using a bit higher than the default cut-off  appears slightly better.
 
 # Bootstrap cost confidence intervals
 
@@ -308,7 +302,7 @@ Let's bootstrap predictions to create error estimates for the predictions and su
 
 ```{r}
 #Define functions
-# https://www.painblogr.org/2017-10-18-purrring-through-bootstraps.html
+#boot code from https://github.com/FRCBS/changes_in_donor_health/blob/master/src/hypothesis_regressions.Rmd
 boot_cost <- function(boot_data, boot_ind, prob.cut = 0.6){
   #sample
     boot_data <- boot_data[boot_ind,]
@@ -347,7 +341,8 @@ compute_CI <-function(fit_boot){
 
 ```{r}
 
-nb_boot <- 1000
+#nb_boot <- 1000
+nb_boot <- nrow(df)
 fit_boot <- boot(df,prob.cut=0.6, statistic= boot_cost, R = nb_boot)
 p6.ci <- compute_CI(fit_boot)
 
@@ -363,48 +358,62 @@ p6.ci
 p8.ci
 ```
 
+## Plot surface with confidence intervals
 
-```{r}
-#a and q values do not come from tprs! they are not optimised
-
+```{r ,warning=FALSE}
+#Get the a (y) and q (x) mappings for the optimised 6 and 12 month scenarios
+x6 <- head(which(q.seq > tprs$q[which(tprs$E6 == min(tprs$E6))] ),1)
+y6 <- head(which(adjustments > tprs$a6[which(tprs$E6 == min(tprs$E6))]),1)
+x12 <- head(which(q.seq > tprs$q[which(tprs$E12 == min(tprs$E12))] ),1)
+y12 <- head(which(adjustments > tprs$a12[which(tprs$E12 == min(tprs$E12))]),1)
+#Plot them
 colnames(E.long) <- c("adjustment", "q", "cost")
 p <- ggplot(E.long, aes(x = q, y = adjustment, z = cost)) +
   geom_tile(aes(fill=cost)) +
-  stat_contour(color = "black", size = 0.7, bins = 2) +
+  stat_contour(color = "white", size = 0.7, binwidth =  1) +
   scale_fill_gradientn(colours=c("blue", "red")) +
-  labs(x="q% i.e. deferral rate", y="Adjustment \n i.e. donation interval co-efficient ")  + 
-  annotate("point", x = head(which(q.seq > q ),1), y = which(adjustments > a6 & adjustments < (a6 + 0.001)), colour = "white", size = 2, alpha = 1) +
-  annotate("point", x = head(which(q.seq > q ),1), y = which(adjustments > a12 & adjustments < (a12 + 0.001)), colour = "white", size = 2, alpha = 1) +
+  labs(x="q% i.e. deferral rate", y=expression(a[tot]~i.e.~donation~interval~coefficient ))  + 
   theme_bw() +
   scale_x_continuous(breaks = c(1, 1001), labels = c("0", "3.2")) +
   scale_y_continuous(breaks = c(1, 1001), labels = c(as.character(min(adjustments)), as.character(max(adjustments))))
 #Add numeric values of costs with optimised classifier probability cut-offs
 p <- p + annotate("text" ,
-                  x = head(which(q.seq > q ),1) , 
-                  y = head(which(adjustments > a6),1) - 50,
-                  label = paste0("6 mo: ", round(tprs$E6[which(tprs$E6 == min(tprs$E6))],2),'(',round(deframe(p6.ci[4,2]),2)," - ",round(deframe(p6.ci[4,3]),2),') €'  ),
+                  x = x6 , 
+                  y = y6 - 50,
+                  label = paste0("6 mo: ", round(tprs$E6[which(tprs$E6 == min(tprs$E6))],2),' (',round(deframe(p6.ci[4,2]),2)," - ",round(deframe(p6.ci[4,3]),2),') €'  ),
                   colour = "white")
 
 p <- p + annotate("text" ,
-                  x = head(which(q.seq > q ),1) , 
-                  y = head(which(adjustments > a12),1) - 50,
-                  label = paste0("12 mo: ", round(tprs$E12[which(tprs$E12 == min(tprs$E12))],2),'(',round(deframe(p8.ci[5,2]),2)," - ",round(deframe(p8.ci[5,3]),2),') €'  ),
+                  x = x12 , 
+                  y = y12 - 50,
+                  label = paste0("12 mo: ", round(tprs$E12[which(tprs$E12 == min(tprs$E12))],2),' (',round(deframe(p8.ci[5,2]),2)," - ",round(deframe(p8.ci[5,3]),2),') €'  ),
                   colour = "white")
+#Add points estimates
+p <- p + annotate("point", x = x6, y = y6, colour = "white", size = 3, alpha = 1) 
+p <- p +  annotate("point", x = x12, y = y12, colour = "white", size = 3, alpha = 1) 
 
 
+#Get x and y values for error bars
+xmin.p6  <- head(which(q.seq >  deframe(p6.ci[1,'CI_inf'])) ,1) 
+xmax.p6  <- head(which(q.seq >  deframe(p6.ci[1,'CI_sup'])) ,1) 
+ymin.p6  <- head(which(adjustments >  deframe(p6.ci[2,'CI_inf'])) ,1) 
+ymax.p6  <- head(which(adjustments >  deframe(p6.ci[2,'CI_sup'])) ,1) 
+
+xmin.p12  <- head(which(q.seq >  deframe(p8.ci[1,'CI_inf'])) ,1) 
+xmax.p12  <- head(which(q.seq >  deframe(p8.ci[1,'CI_sup'])) ,1) 
+ymin.p12  <- head(which(adjustments >  deframe(p8.ci[3,'CI_inf'])) ,1) 
+ymax.p12  <- head(which(adjustments >  deframe(p8.ci[3,'CI_sup'])) ,1) 
 #Add error bars of q and a
-# p <- p + annotate("text" ,
-#                   x = head(which(q.seq > q ),1) , 
-#                   y = head(which(adjustments > a12),1) - 50,
-#                   label = paste0("12 mo: ", round(E12,2),'(',round(deframe(p8.ci[5,2]),2)," - ",round(deframe(p8.ci[5,3]),2),') €'  ),
-#                   colour = "white")
-p <- p + labs(color="Cost per donation (€)")
+
+p <- p + annotate("errorbar",x=x6,ymin = ymin.p6, ymax= ymax.p6,size=1   )
+p <- p + annotate("errorbarh",y=y6,xmin = xmin.p6, xmax= xmax.p6,size=1   )
+
+p <- p + annotate("errorbar",x=x12,ymin = ymin.p12, ymax= ymax.p12,size=1  )
+p <- p + annotate("errorbarh",y=y12,xmin = xmin.p12, xmax= xmax.p12,size=1   )
+
+p <- p + labs(fill="Cost effect (€ / donation)")  + theme(legend.position="bottom")
 p
 ggsave(filename="../results/cme_cost_surface_werr.pdf",  width = 180,  height = 120,units="mm", dpi=600, scale=1.0,encoding = "ISOLatin9.enc")
 ```
 
-
-```{r}
-labs(x="q%", y="Adjustment", title="Cost surface (2018-2020)", subtitle = paste0("Surface minimum: ", round(min(E.long$cost), 2), ". Cost effect thresholds highlighted at 0 and -1 euros.", "\n", "Dots mark current model performance with a 6 or 12 month extension strategy."))
-```
 
