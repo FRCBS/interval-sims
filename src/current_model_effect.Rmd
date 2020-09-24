@@ -372,7 +372,7 @@ p <- ggplot(E.long, aes(x = q, y = adjustment, z = cost)) +
   geom_tile(aes(fill=cost)) +
   stat_contour(color = "white", size = 0.7, binwidth =  1) +
   scale_fill_gradientn(colours=c("blue", "red")) +
-  labs(x="q% i.e. deferral rate", y=expression(a[tot]~i.e.~donation~interval~coefficient ))  + 
+  labs(x="q% i.e. rate of avoided deferrals", y=expression(a[tot]~i.e.~donation~interval~coefficient ))  + 
   theme_bw() +
   scale_x_continuous(breaks = c(1, 1001), labels = c("0", "3.2")) +
   scale_y_continuous(breaks = c(1, 1001), labels = c(as.character(min(adjustments)), as.character(max(adjustments))))
