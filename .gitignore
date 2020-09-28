@@ -21,6 +21,11 @@
 !results/*.rst
 !results/*.md
 
+!*.txt
+!*.rst
+!*.md
+
+
 #Include result .sh s
 !results/*/*.sh
 #Include .json files
