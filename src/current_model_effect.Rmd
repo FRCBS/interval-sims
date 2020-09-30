@@ -5,6 +5,7 @@ date: "`r Sys.time()`"
 output:
   pdf_document: default
   html_document: default
+dev: cairo_pdf 
 ---
 
 ```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
@@ -290,7 +291,8 @@ p <- p + geom_point(aes( y =tprs$E12[which(tprs$E12 == min(tprs$E12))] , x = tpr
 p <- p + geom_label(aes( y =tprs$E12[which(tprs$E12 == min(tprs$E12))] , x = tprs$probability[which(tprs$E12 == min(tprs$E12))] , label = paste0("p>=",round(tprs$probability[which(tprs$E12 == min(tprs$E12))],2) , " ; ",  round(tprs$E12[which(tprs$E12 == min(tprs$E12))],2)," €")), nudge_y=0.2,size=size)
 p <- p + theme(legend.position="bottom")
 p
-ggsave(filename="../results/cme_prob_cut_curve.pdf", p, width = 90,  height = 80,units="mm", dpi=600, scale=1.0,encoding = "ISOLatin9.enc")
+#ggsave(filename="../results/cme_prob_cut_curve.pdf", p, width = 90,  height = 80,units="mm", dpi=600, scale=1.0,encoding = "ISOLatin9.enc")
+ggsave(filename="../results/cme_prob_cut_curve.pdf", p, width = 90,  height = 80,units="mm", dpi=600, scale=1.0,device=cairo_pdf)
 ```
 
 
@@ -380,13 +382,13 @@ p <- ggplot(E.long, aes(x = q, y = adjustment, z = cost)) +
 p <- p + annotate("text" ,
                   x = x6 , 
                   y = y6 - 50,
-                  label = paste0("6 mo: ", round(tprs$E6[which(tprs$E6 == min(tprs$E6))],2),' (',round(deframe(p6.ci[4,2]),2)," - ",round(deframe(p6.ci[4,3]),2),') €'  ),
+                  label = paste0("6 mo: ", round(tprs$E6[which(tprs$E6 == min(tprs$E6))],2),' (',round(deframe(p6.ci[4,2]),2)," – ",round(deframe(p6.ci[4,3]),2),') €'  ),
                   colour = "white")
 
 p <- p + annotate("text" ,
                   x = x12 , 
                   y = y12 - 50,
-                  label = paste0("12 mo: ", round(tprs$E12[which(tprs$E12 == min(tprs$E12))],2),' (',round(deframe(p8.ci[5,2]),2)," - ",round(deframe(p8.ci[5,3]),2),') €'  ),
+                  label = paste0("12 mo: ", round(tprs$E12[which(tprs$E12 == min(tprs$E12))],2),' (',round(deframe(p8.ci[5,2]),2)," – ",round(deframe(p8.ci[5,3]),2),') €'  ),
                   colour = "white")
 #Add points estimates
 p <- p + annotate("point", x = x6, y = y6, colour = "white", size = 3, alpha = 1) 
@@ -413,7 +415,9 @@ p <- p + annotate("errorbarh",y=y12,xmin = xmin.p12, xmax= xmax.p12,size=1   )
 
 p <- p + labs(fill="Cost effect (€ / donation)")  + theme(legend.position="bottom")
 p
-ggsave(filename="../results/cme_cost_surface_werr.pdf",  width = 180,  height = 120,units="mm", dpi=600, scale=1.0,encoding = "ISOLatin9.enc")
+#ggsave(filename="../results/cme_cost_surface_werr.pdf",  width = 180,  height = 120,units="mm", dpi=600, scale=1.0,encoding = "ISOLatin9.enc")
+ggsave(filename="../results/cme_cost_surface_werr.pdf",  width = 180,  height = 120,units="mm", dpi=600, scale=1.0, device=cairo_pdf)
+#check this from the performance plot
 ```
 
 
