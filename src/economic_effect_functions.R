@@ -1,6 +1,8 @@
 #!/usr/bin/env Rscript
 
 library(tidyverse)
+library(caret)
+library(boot)
 
 filter_donations <- function(data, 
                              donor=NULL, donation13=NULL, site=NULL,
@@ -105,7 +107,7 @@ get_cost_constants <- function(data) {
   ))
 }
 
-# These are from the random forest
+# These are from Progesa data
 get_mikkos_cost_constants <- function() {
   return(list(
     mr=0.4732352,
@@ -114,31 +116,97 @@ get_mikkos_cost_constants <- function() {
     fdr=0.7664205,
     d=0.03269718
   ))
-  
 }
 
-get_cost <- function(TPR, FPR,d.=d, mr.=mr,fr.=fr,mdr.=mdr,fdr.=fdr,Pm.=Pm,Pd.=Pd,Fn.=Fn,rl.=rl) {
-  q <- d. * TPR
-  a6 <- 1 * ((1 - FPR) * (1 - d.)) + 
-    3 * mr. * (FPR * (1 - d.)) + 2 * fr. * (FPR * (1 - d.)) + 
-    3 * mdr. * d. + 2 * fdr. * d.
+data_parameters <- get_mikkos_cost_constants()
+fixed_parameters <- list(Pm=2, Pd=60, Fn=0.1066, rl=0)
+
+parameters <- c(data_parameters, fixed_parameters)
+
+#get_cost <- function(TPR6, FPR6, TPR12, FPR12, d.=d, mr.=mr, fr.=fr, mdr.=mdr, fdr.=fdr, Pm.=Pm, Pd.=Pd, Fn.=Fn, rl.=rl) {
+get_cost <- function(TPR6, FPR6, TPR12, FPR12, p = parameters) {
+  d.=p$d
+  mr.=p$mr
+  fr.=p$fr
+  mdr.=p$mdr
+  fdr.=p$fdr
+  Pm.=p$Pm
+  Pd.=p$Pd
+  Fn.=p$Fn
+  rl.=p$rl
   
-  a12 <- 1 * ((1 - FPR) * (1 - d.)) + 
-    6 * mr. * (FPR * (1 - d.)) + 4 * fr. * (FPR * (1 - d.)) + 
-    6 * mdr. * d. + 4 * fdr. * d.
+  if (FALSE) {
+    get_cost2 <- function(TPR, FPR) {
+      q <- d. * TPR
+      a <- 1 * ((1 - FPR) * (1 - d.)) + 
+        3 * mr. * (FPR * (1 - d.)) + 2 * fr. * (FPR * (1 - d.)) + 
+        3 * mdr. * d. + 2 * fdr. * d.
+      Fratio <- a / (1 + Fn. * (a - 1))
+      Em <- Pm. * (Fratio - 1 - q * rl.)
+      Ed <- Pd. * q
+      E <- Em - Ed
+      tibble(q=q, a=a, E=E, TPR=TPR, FPR=FPR)
+    }
+    df6 <- get_cost2(TPR6, FPR6)
+    df12 <- get_cost2(TPR12, FPR12)
+    names(df6) <- paste0(names(df6), "6")
+    names(df12) <- paste0(names(df12), "12")
+    return(bind_cols(df6, df12))
+  } else {
+    q6 <- d. * TPR6
+    q12 <- d. * TPR12
+    a6 <- 1 * ((1 - FPR6) * (1 - d.)) +
+      3 * mr. * (FPR6 * (1 - d.)) + 2 * fr. * (FPR6 * (1 - d.)) +
+      3 * mdr. * d. + 2 * fdr. * d.
+
+    a12 <- 1 * ((1 - FPR12) * (1 - d.)) +
+      6 * mr. * (FPR12 * (1 - d.)) + 4 * fr. * (FPR12 * (1 - d.)) +
+      6 * mdr. * d. + 4 * fdr. * d.
+
+    # a6
+    Fratio <- a6 / (1 + Fn. * (a6 - 1))
+    Em <- Pm. * (Fratio - 1 - q6 * rl.)
+    Ed <- Pd. * q6
+    E6 <- Em - Ed
+
+    # a12
+    Fratio <- a12 / (1 + Fn. * (a12 - 1))
+    Em <- Pm. * (Fratio - 1 - q12 * rl.)
+    Ed <- Pd. * q12
+    E12 <- Em - Ed
+    return(tibble(q6=q6, q12=q12, a6=a6, a12=a12, E6=E6, E12=E12, TPR6=TPR6, FPR6=FPR6, TPR12=TPR12, FPR12=FPR12))
+  }
+}
+
+get_optimal_thresholds <- function(df, p=parameters) {
+  thresholds <- seq(0.1, .9, .1)
+  pred.classes <- data.frame(matrix(nrow=nrow(df),ncol=length(thresholds)))
+  colnames(pred.classes) <- paste0("p_",thresholds)
+  for (t in thresholds ) {
+    colname <- paste0("p_",t)
+    pred.classes[, colname] <- factor(ifelse(df$Deferred >= t ,"Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
+  }
   
-  # a6
-  Fratio <- a6 / (1 + Fn. * (a6 - 1))
-  Em <- Pm. * (Fratio - 1 - q * rl.)
-  Ed <- Pd. * q
-  E6 <- Em - Ed
+  # Count TPR and FPR for each probability cut-off
   
-  # a12
-  Fratio <- a12 / (1 + Fn. * (a12 - 1))
-  Em <- Pm. * (Fratio - 1 - q * rl.)
-  Ed <- Pd. * q
-  E12 <- Em - Ed
-  tibble(q=q, a6=a6, a12=a12, E6=E6, E12=E12, TPR=TPR, FPR=FPR)
+  
+  sen <- vector()
+  spe <- vector()
+  for(i in names(pred.classes)) {
+    conf <- caret::confusionMatrix(reference=df$obs, data=pred.classes[,i], positive = "Deferred", mode="everything")
+    #Sensitivity  = TPR
+    sen <- c(sen,conf$byClass['Sensitivity']) 
+    spe <- c(spe, 1 - conf$byClass['Specificity']) 
+  }
+  tprs <- tibble(probability = thresholds, TPR=unname(sen), FPR=unname(spe))
+  #print(tprs)
+  #  tprs <- tprs %>% group_by(probability,TPR,FPR) %>%  do(get_cost(.$TPR,.$FPR) )
+  tprs <- tprs %>% rowwise() %>% mutate(get_cost(TPR, FPR, TPR, FPR, p)) %>% ungroup()
+  threshold6 <- tprs %>% filter(E6 == min(E6)) %>% pull(probability)
+  threshold12 <- tprs %>% filter(E12 == min(E12)) %>% pull(probability)
+  E6 <- tprs %>% filter(probability==threshold6) %>% pull(E6)
+  E12 <- tprs %>% filter(probability==threshold12) %>% pull(E12)
+  return(list(threshold6=threshold6, threshold12=threshold12, E6=E6, E12=E12))
 }
 
 get_linear_progesa_rates <- function() {
@@ -156,6 +224,65 @@ get_linear_progesa_rates <- function() {
   FPR <- false_positives / negatives
   return(list(TPR=TPR,FPR=FPR))
 }
+
+load_single <- function(filename) {
+  names <- load(filename, verbose=FALSE)
+  stopifnot(length(names) == 1)
+  return(get(names))
+}
+
+# The result dataframes are stored in various places and forms. This gets them in uniform manner. 
+get_data_frame <- function(id) {
+  dir="~/FRCBS/interval_prediction/data/raw_results/"
+  process <- function(df) { 
+    return(df %>% select(Deferred=scores, obs=deferral) %>% mutate(obs=factor(ifelse(obs==1, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))) 
+  }
+  if (id == "progesa-female-lmm") {
+    file <- "raw_result_female_date-2020-08-12-gender-female-sample_fraction-1.0-method-no-fix-hlen-7-cores-3-extra_id-progesa-test.rdata"
+    df <- load_single(paste0(dir, file))$comp_df
+    return(process(df))
+  } else if (id == "progesa-female-dlmm") {
+    file <- "raw_result_female_icp_date-2020-08-12-gender-female-sample_fraction-1.0-method-icp-fix-hlen-7-extra_id-progesa-test.rdata"
+    df <- load_single(paste0(dir, file))$comp_df
+    return(process(df))
+  } else if (id == "progesa-male-lmm") {
+    file <- "raw_result_male_date-2020-08-18-gender-male-sample_fraction-1.0-method-no-fix-hlen-7-iterations-2400-extra_id-progesa-test.rdata"
+    df <- load_single(paste0(dir, file))$comp_df
+    return(process(df))
+  } else if (id == "progesa-male-dlmm") {
+    file <- "raw_result_male_icp_date-2020-08-18-gender-male-sample_fraction-1.0-method-icp-fix-hlen-7-iterations-2400-extra_id-progesa-test.rdata"
+    df <- load_single(paste0(dir, file))$comp_df
+    return(process(df))
+  } else if (id == "finngen-male-dlmm") {
+    file <- "raw_result_male_icp_date-2020-08-09-gender-both-sample_fraction-1.0-method-icp-fix-hlen-7-extra_id-finngen-test-data.rdata"
+    df <- load_single(paste0(dir, file))$comp_df
+    return(process(df))
+  } else if (id == "finngen-female-dlmm") {
+    file <- "raw_result_female_icp_date-2020-08-09-gender-both-sample_fraction-1.0-method-icp-fix-hlen-7-extra_id-finngen-test-data.rdata"
+    df <- load_single(paste0(dir, file))$comp_df
+    return(process(df))
+  } else if (id == "findonor-female-dlmm") {
+    file <- "/home/toivoja/FRCBS/interval_prediction/data/model_fits/hfc_2108.rdata"
+    temp <- load_single(file)
+    df <- bind_rows(temp[[1]]$results, temp[[2]]$results, temp[[3]]$results, temp[[4]]$results)
+    df <- df %>% select(Deferred=fractions, obs=deferral) %>% mutate(obs=factor(ifelse(obs == 1, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))
+    return(df)
+  } else if (id == "findonor-male-dlmm") {
+    file <- "/home/toivoja/FRCBS/interval_prediction/data/model_fits/hmc_2108.rdata"
+    temp <- load_single(file)
+    df <- bind_rows(temp[[1]]$results, temp[[2]]$results, temp[[3]]$results, temp[[4]]$results)
+    df <- df %>% select(Deferred=fractions, obs=deferral) %>% mutate(obs=factor(ifelse(obs == 1, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))
+    return(df)
+  } else if (id == "progesa-both-rf") {
+    df <- load_single("~/FRCBS/interval-sims/rrfFit_roc_validate_probs.rdata")
+    return(df)
+  } else {
+    stop("Unknown id")
+  }
+}
+
+ids <- c("progesa-female-lmm", "progesa-female-dlmm", "progesa-male-lmm", "progesa-male-dlmm", "finngen-male-dlmm", "finngen-female-dlmm", 
+         "findonor-female-dlmm", "findonor-male-dlmm", "progesa-both-rf")
 
 # Rates from random forest
 get_rf_rates <- function() {
@@ -182,6 +309,8 @@ get_rf_rates2 <- function(threshold) {
   return(list(TPR=df$TPR, FPR=df$FPR))
   
 }
+
+
 
 test_get_cost <- function(name, threshold=0.5) {
   
@@ -212,14 +341,110 @@ test_get_cost <- function(name, threshold=0.5) {
   #cat(TPR, "\n")
   #cat(FPR)
   q <- d * TPR
-  rl <- 0
-  Pm <- 2
-  Pd <- 60
-  Fn <- 0.1066
+  rl <- fixed_parameters$rl
+  Pm <- fixed_parameters$Pm
+  Pd <- fixed_parameters$Pd
+  Fn <- fixed_parameters$Fn
   cost <- get_cost(TPR, FPR, d, mr, fr, mdr, fdr, Pm, Pd, Fn, rl)
   cost <- cost %>% mutate(name = name)
   return(cost)
   
+}
+
+get_f1 <- function(df) {
+  pred.class <- factor( ifelse(df$Deferred >= 0.5, "Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
+  cm <- confusionMatrix(reference = df$obs, data = pred.class, positive = "Deferred", mode = "prec_recall")
+  f1 <- cm$byClass["F1"]
+  return(f1)
+}
+
+#boot code from https://github.com/FRCBS/changes_in_donor_health/blob/master/src/hypothesis_regressions.Rmd
+boot_cost <- function(boot_data, boot_ind, threshold6 = 0.6, threshold12 = 0.8, p){
+  #sample
+  boot_data <- boot_data[boot_ind,]
+  get_rates <- function(threshold) {
+    #classify predictions
+    pred.class <- factor(ifelse(boot_data$Deferred >= threshold, "Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
+    #get TPR and FPR
+    conf <- caret::confusionMatrix(reference=boot_data$obs, data=pred.class, positive = "Deferred", mode="sens_spec")
+    TPR <- unname(conf$byClass['Sensitivity']) 
+    FPR <- unname(1 - conf$byClass['Specificity'])
+    return(list(TPR=TPR,FPR=FPR))
+  }
+  #get cost
+  r6 <- get_rates(threshold6)
+  r12 <- get_rates(threshold12)
+
+  costs <- get_cost(TPR6=r6$TPR, FPR6=r6$FPR, TPR12=r12$TPR, FPR12=r12$FPR, p)
+  costs <- costs %>% select("E6", "E12")
+  costs <- unlist(costs)
+  
+  # Compute the F1 score using threshold 0.5
+  costs["F1"] <- get_f1(boot_data)
+  return(costs)
+}
+
+compute_CI <-function(fit_boot){
+  CI_inf = rep(0, length(fit_boot$t0))
+  CI_sup = rep(0, length(fit_boot$t0))
+  for (i_regressor in 1:length(fit_boot$t0)){
+    #https://stackoverflow.com/questions/6791290/r-boot-package-not-enough-memory-to-get-confidence-intervals
+    #CI <- boot.ci(fit_boot, type = "bca", index=i_regressor)
+    #Bca_inf[i_regressor] <- CI$bca[4] # N.B type = 'normal' has 3 columns, while the other types 5 columns
+    #Bca_sup[i_regressor] <- CI$bca[5] #
+    #there is just too much data for bca to be used
+    
+    # The F1 score can be undefined if both precision and recall are zeros
+    error_code <- tryCatch(
+      condition = function(cnd) {
+        # return exit code
+        -1
+      },
+      {
+        CI <- boot.ci(fit_boot, conf = 0.95, type = "norm", index=i_regressor)
+        CI_inf[i_regressor] <- CI$normal[2]
+        CI_sup[i_regressor] <- CI$normal[3]
+      }
+      
+    )
+    if (!is.null(error_code) && error_code == -1) {
+      CI_inf[i_regressor] <- NaN   # I have to do these outside the tryCatch block because the error handler cannot access these variables.
+      CI_sup[i_regressor] <- NaN
+    }
+  }
+  
+  return(tibble(variable = names(fit_boot$t0), CI_inf, CI_sup))
+}
+
+get_intervals <- function(df, threshold6=0.6, threshold12=0.8) {
+  #nb_boot <- 100
+  nb_boot <- nrow(df)
+  fit_boot <- boot(df, threshold6=threshold6, threshold12=threshold12, p=parameters, statistic = boot_cost, R = nb_boot)
+  ci <- compute_CI(fit_boot)
+  ci <- ci %>% filter(variable %in% c("E6", "E12", "F1")) %>% pivot_longer(cols=c(CI_inf, CI_sup), names_to="type")
+  return(ci)
+}
+
+process_data <- function(df) {
+  print("Here")
+  res <-  get_optimal_thresholds(df)
+  f1 <- get_f1(df)
+  #print(f1)
+  ci <- get_intervals(df, threshold6 = res$threshold6, threshold12 = res$threshold12)
+  t <- tibble(variable=c("E6", "E12", "F1", "threshold6", "threshold12"), type="actual", value=c(res$E6, res$E12, f1, res$threshold6, res$threshold12))
+  return(bind_rows(ci, t))
+}
+
+process_all_data <- function(ids) {
+  data_frames <- map(ids, get_data_frame)
+  results <- map(data_frames, process_data)
+  names(results) <- ids
+  df <- bind_rows(results, .id="Id") %>%
+    mutate(type=map_chr(type, function(x) when(x, . == "actual" ~ "", . == "CI_inf" ~ "low", . == "CI_sup" ~ "high"))) %>%
+    pivot_wider(names_from=c("variable", "type"), values_from=value, names_glue="{variable} {type}")
+  names(df) <- str_trim(names(df))
+  df <- df %>% select("Id", "E6", "E6 low", "E6 high", "E12", "E12 low", "E12 high", "F1", "F1 low", "F1 high", "threshold6", "threshold12")
+  return(df)
 }
 
 test_get_all_costs <- function() {
