@@ -202,11 +202,19 @@ get_optimal_thresholds <- function(df, p=parameters) {
   #print(tprs)
   #  tprs <- tprs %>% group_by(probability,TPR,FPR) %>%  do(get_cost(.$TPR,.$FPR) )
   tprs <- tprs %>% rowwise() %>% mutate(get_cost(TPR, FPR, TPR, FPR, p)) %>% ungroup()
-  threshold6 <- tprs %>% filter(E6 == min(E6)) %>% pull(probability)
-  threshold12 <- tprs %>% filter(E12 == min(E12)) %>% pull(probability)
-  E6 <- tprs %>% filter(probability==threshold6) %>% pull(E6)
-  E12 <- tprs %>% filter(probability==threshold12) %>% pull(E12)
+  #print(tprs)
+  row <- tprs %>% slice_min(E6, with_ties=FALSE)
+  E6 <- row %>% pull(E6)
+  threshold6 <- row %>% pull(probability)
+  row <- tprs %>% slice_min(E12, with_ties=FALSE)
+  E12 <- row %>% pull(E12)
+  threshold12 <- row %>% pull(probability)
+  # threshold6 <- tprs %>% filter(E6 == min(E6)) %>% pull(probability)
+  # threshold12 <- tprs %>% filter(E12 == min(E12)) %>% pull(probability)
+  # E6 <- tprs %>% filter(probability==threshold6) %>% pull(E6)
+  # E12 <- tprs %>% filter(probability==threshold12) %>% pull(E12)
   return(list(threshold6=threshold6, threshold12=threshold12, E6=E6, E12=E12))
+  #return(tprs)
 }
 
 get_linear_progesa_rates <- function() {
@@ -275,6 +283,10 @@ get_data_frame <- function(id) {
     return(df)
   } else if (id == "progesa-both-rf") {
     df <- load_single("~/FRCBS/interval-sims/rrfFit_roc_validate_probs.rdata")
+    return(as_tibble(df))
+  } else if (id == "progesa-both-dt") {
+    df <- as_tibble(load_single("~/FRCBS/interval-sims/rrfFit__dtree_roc_validate_probs.rdata"))
+    df <- df %>% mutate(obs = factor(ifelse(obs == 2, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))
     return(df)
   } else {
     stop("Unknown id")
@@ -282,7 +294,7 @@ get_data_frame <- function(id) {
 }
 
 ids <- c("progesa-female-lmm", "progesa-female-dlmm", "progesa-male-lmm", "progesa-male-dlmm", "finngen-male-dlmm", "finngen-female-dlmm", 
-         "findonor-female-dlmm", "findonor-male-dlmm", "progesa-both-rf")
+         "findonor-female-dlmm", "findonor-male-dlmm", "progesa-both-dt", "progesa-both-rf")
 
 # Rates from random forest
 get_rf_rates <- function() {
@@ -419,7 +431,7 @@ compute_CI <-function(fit_boot){
 get_intervals <- function(df, threshold6=0.6, threshold12=0.8) {
   #nb_boot <- 100
   nb_boot <- nrow(df)
-  fit_boot <- boot(df, threshold6=threshold6, threshold12=threshold12, p=parameters, statistic = boot_cost, R = nb_boot)
+  fit_boot <- boot(df, threshold6=threshold6, threshold12=threshold12, p=parameters, statistic = boot_cost, R = nb_boot, parallel="multicore", ncpus=4)
   ci <- compute_CI(fit_boot)
   ci <- ci %>% filter(variable %in% c("E6", "E12", "F1")) %>% pivot_longer(cols=c(CI_inf, CI_sup), names_to="type")
   return(ci)
@@ -447,6 +459,30 @@ process_all_data <- function(ids) {
   return(df)
 }
 
+# Show AUROC, AUPR, F1, E6, and E12 as forest plot
+create_performance_forest_plot <- function() {
+  df <- read_csv("~/FRCBS/results-for-eba-paper/raw_data.csv")
+  df <- df %>%
+    mutate(Id=factor(Id, levels=rev(ids)),
+           type=factor(type, levels=c("AUROC", "AUPR", "F1", "E6", "E12")))
+  
+  # Below we use a dummy table and geom_blank to have the same xlimits for E6 and E12 panels
+  xrange <- as.numeric(df %>% filter(type %in% c("E6", "E12")) %>% summarise(low=min(low), high=max(high))) # range of x-axis for E6 and E12
+  xrange <- rep(xrange, 2)
+  mytype <- factor(rep(c("E6", "E12"), each=2), levels=c("AUROC", "AUPR", "F1", "E6", "E12"))
+  dummy <- tibble(Id="progesa-female-lmm", value=xrange, low=xrange, high=xrange, type=mytype)  # Dummy table to use the same x-axis limits for E6 and E12
+  #print(dummy)
+  
+  g <- df %>% ggplot(aes(y=Id, x=value, xmin=low, xmax=high)) + 
+    geom_pointrange() + 
+    ylab("Data and method") + 
+    geom_blank(data=dummy) +
+    facet_wrap("type", scales="free_x")
+  ggsave(filename="~/FRCBS/results-for-eba-paper/forest_plot.pdf", plot=g, dpi=600, units="mm", width=180)
+  return(g)
+}
+
+
 test_get_all_costs <- function() {
   costs <- bind_rows(test_get_cost("computed_consts_linear_progesa"), 
                      test_get_cost("mikkos_consts_linear_progesa"), 
@@ -457,6 +493,41 @@ test_get_all_costs <- function() {
   return(costs)
 }
 
+
+calibration_plot <- function(df, use_my_method=FALSE) {
+  if (use_my_method) {
+    df$cat <- cut(df$Deferred, seq(0.0, 1.0, length.out = 11))
+    df2 <- df %>% group_by(cat, .drop=FALSE) %>% summarise(true_bin_prob = mean(obs=="Deferred"))
+    df2 %>% ggplot(aes(cat, true_bin_prob)) + geom_point() + ylim(0, 1)
+  } else {
+    cal <- calibration(obs ~ Deferred, data=df, class="Deferred", cuts=11)
+    ggplot(cal) + ylim(0, 100)
+  }
+}
+
+
+calibration_plots <- function(ids) {
+  data_frames <- map(ids, get_data_frame)
+  names(data_frames) <- ids
+  df <- bind_rows(data_frames, .id="Id")
+  df <- df %>% 
+    group_by(Id) %>%
+    mutate(cat=cut(Deferred, seq(0.0, 1.0, length.out = 11))) %>%
+    group_by(Id, cat, .drop=FALSE) %>% summarise(true_bin_prob = mean(obs=="Deferred")) %>%
+    ungroup() %>%
+    mutate(Id = factor(Id, levels=ids))
+  
+  g <- df %>% ggplot(aes(cat, true_bin_prob)) + 
+    geom_point() + 
+    ylim(0, 1) +
+    labs(x="Predicted probability", y="True probability in each bin") +
+    geom_abline(aes(intercept=-0.1, slope=0.1)) +
+    facet_wrap("Id") +
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.5))
+  
+  #return(df)
+  return(g)
+}
 
 cost_func <- function(q, atot, Pm, Pd, F, Fn, rloss) {Pm * ((F*atot) / (F + Fn*(atot-1)) - 1 - q*rloss) - Pd*q}
 
