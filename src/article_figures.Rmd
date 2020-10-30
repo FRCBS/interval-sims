@@ -1,0 +1,267 @@
+---
+title: "Article figures"
+author: "Jarkko Toivonen"
+date: "10/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("economic_effect_functions.R")
+save_figs = FALSE
+fig_path="~/FRCBS/results-for-eba-paper/pdf"
+```
+
+## Effect sizes and importances of variables
+
+Effect sizes of variables from eProgesa and Biobank using dynamic linear mixed model. In addition, variables
+importance from random forest algorithm.
+
+```{r}
+# Creates a forest plot of means and confidence intervals from posterior distributions.
+# Puts both male and female results in the same plot.
+create_double_forest_plot <- function(male_posterior, female_posterior, variables, combined_variables, base_size = 11) {
+  for (gender in c("male", "female")) {
+    #posterior <- ifelse(gender == "male", male_posterior, female_posterior)
+    if (gender == "male") {
+      posterior <- male_posterior
+    } else {
+      posterior <- female_posterior
+    }
+    
+    for (i in seq_along(posterior)) {
+      #cat(sprintf("Gender %s, Column %i\n", gender, i))
+      v <- posterior[[i]]
+      ci_hdi <- bayestestR::ci(v, method = "HDI", ci=0.95)
+      #str(ci_hdi)
+      L <- list(names = variables[[i]], gender=gender, mean = mean(v), low = ci_hdi$CI_low, high = ci_hdi$CI_high)
+      if (i == 1 && gender=="male") {
+        result <- data.frame(L, stringsAsFactors = FALSE)
+      } else {
+        result <- rbind(result, L)
+      }
+    }
+  }
+  result <- as_tibble(result)
+  result <- result %>%
+    mutate(gender = factor(gender, levels=c("female", "both", "male")))
+  cis <- result
+  #result <- DescTools::Rev(result, margin=1)   # Reverse the order of rows so they appear in correct order in the forest plot
+  print(head(result))
+  combined_variables <- combined_variables %>% rename(names=Pretty)
+  result <- left_join(combined_variables, result, by="names")
+  plot <- result %>% ggplot(aes(y=factor(names, levels=rev(combined_variables$names)), x=mean, xmin=low, xmax=high, color=gender)) +     
+    geom_vline(aes(xintercept=0), color="lightgray") +
+    #geom_pointrange() +
+    ggstance::geom_pointrangeh(position=position_dodge2(width=0.8, padding=0.1), size=0.25) + # ggstance is required to make legend keys horizontal
+    labs(title="", #title="Effects sizes of variables on Hb prediction",
+         x="Regression coefficient", y=NULL, colour="Sex") +
+    scale_colour_discrete(drop=FALSE, breaks = c("male", "female")) + 
+    #guides(colour = guide_legend(reverse = TRUE)) + # Reverse the order of keys in the legend
+    theme_gray(base_size = base_size) + theme(legend.position = "bottom", legend.direction = "horizontal")
+    
+  return(list(plot=plot, cis=cis))
+}
+
+# create_variable_importance_plot <- function(rrfFit_roc, descript, base_size = 11) {
+#   rrfFit_rocImp <- varImp(rrfFit_roc, scale = FALSE)
+#   rrfFit.varimp <- as_tibble(cbind(rownames(rrfFit_rocImp$importance),rrfFit_rocImp$importance))
+#   colnames(rrfFit.varimp) <- c("Variable","Importance")
+#   rrfFit.varimp <- left_join(rrfFit.varimp, descript, by=c("Variable"="Variable")) %>% select(Variable,Pretty,Importance) %>% arrange(Importance)
+#   
+#   rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "previous_Hb_defTRUE"] <- "Previous donation deferred"
+#   rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "warm_seasonTRUE"] <- "Warm season"
+#   rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "genderWomen"] <- "Sex"
+#   
+#   varimp.plot <- ggplot(rrfFit.varimp) + 
+#     geom_col(aes(y=Importance, x=reorder(Pretty, Importance)), alpha=0.7) + 
+#     coord_flip() +
+#     xlab(NULL) + 
+#     theme_gray(base_size = base_size)
+#     #xlab("Variable")
+#   
+#   #filename="../results/rrfFit_roc_importance.pdf"
+#   #ggsave(filename=filename, varimp.plot, width = 180,  height = 80,units="mm", dpi=600, scale=1.0)
+#   return(varimp.plot)
+# }
+
+create_variable_importance_plot2 <- function(rrfFit_roc, descript, combined_variables, base_size = 11) {
+  rrfFit_rocImp <- varImp(rrfFit_roc, scale = FALSE)
+  rrfFit.varimp <- as_tibble(cbind(rownames(rrfFit_rocImp$importance),rrfFit_rocImp$importance))
+  colnames(rrfFit.varimp) <- c("Variable","Importance")
+  rrfFit.varimp <- left_join(rrfFit.varimp, descript, by=c("Variable"="Variable")) %>% select(Variable,Pretty,Importance) %>% arrange(Importance)
+  
+  rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "previous_Hb_defTRUE"] <- "Previous donation deferred"
+  rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "warm_seasonTRUE"] <- "Warm season"
+  rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "genderWomen"] <- "Sex"
+  
+  #pretty <- descript["Pretty"]
+  pretty <- combined_variables
+  rrfFit.varimp <- left_join(pretty, rrfFit.varimp, by="Pretty")
+  varimp.plot <- rrfFit.varimp %>% 
+    ggplot(aes(y=factor(Pretty, levels=rev(Pretty)), x=Importance, xmin=0, xmax=Importance, colour = factor("both", levels=c("female", "both", "male")))) + 
+    ggstance::geom_pointrangeh(position=position_dodge2(width=0.8, padding=0.1)) +  # ggstance is required to make legend keys horizontal
+                               #colour = hue_pal()(3)[2], size=0.25) +
+    labs(y=NULL, colour="Sex") + 
+    guides(colour="none", y="none") +
+    scale_colour_discrete(drop=FALSE) +
+    theme_gray(base_size = base_size)
+
+  return(varimp.plot)
+}
+
+create_forest_importance_plot <- function(male_posterior, female_posterior, variables,
+                                           filename=NULL,
+                                           width = 180,  # width of the combined figure in millimetres
+                                          base_size = 11
+) {
+  rrfFit_roc <- load_single("~/FRCBS/interval_prediction/results/rrfFit_roc.rdata")
+  combined_variables <- tibble(Pretty=c(variables, "Life time donations", "Sex", "First Hb"))
+  forest <- create_double_forest_plot(male_posterior, female_posterior, variables, combined_variables, base_size = base_size)$plot
+  importance <- create_variable_importance_plot2(rrfFit_roc, descript, combined_variables, base_size = base_size)
+  
+  use_cowplot <- TRUE
+  
+  if (use_cowplot) {
+    forest_importance <- cowplot::plot_grid(forest, importance, labels = c('A', 'B'), label_size = 12, nrow=1, scale=1.0, axis="tb", align="h",
+                                            rel_widths = c(2, 1))
+    if (!is.null(filename)) {
+      cowplot::save_plot(filename, forest_importance, title="Effect sizes and importances",
+                         ncol = 2, base_asp = 1.0, base_width = width / 25.4 / 2, base_height = NULL)
+    }
+  } else {
+    forest_importance <- gridExtra::grid.arrange(forest, importance, nrow = 1, respect=TRUE)   # Combine the plots
+    if (!is.null(filename)) {
+      ggsave(filename=filename, forest_importance, width = width, units="mm", dpi=600, scale=1.0)
+    }
+  }
+  forest_importance
+}
+```
+
+```{r}
+finngenn_male_raw <- get_raw_result_list("finngen-male-dlmm")
+finngenn_female_raw <- get_raw_result_list("finngen-female-dlmm")
+male_posterior <- finngenn_male_raw$samples
+female_posterior <- finngenn_female_raw$samples
+variables <- finngenn_male_raw$pretty_variable_names
+```
+
+
+```{r}
+if (save_figs) {
+    filename <- paste(fig_path, "effect_size_importance.pdf", sep="/")
+} else {
+    filename <- NULL
+}
+create_forest_importance_plot(male_posterior, female_posterior, variables, filename=filename)
+```
+
+
+## Performance forest plot
+
+```{r}
+# Show AUROC, AUPR, F1, E6, and E12 as forest plot
+create_performance_forest_plot <- function() {
+  df <- read_csv("~/FRCBS/results-for-eba-paper/raw_data.csv")
+  df <- df %>%
+    mutate(Id=factor(Id, levels=rev(ids)),
+           type=factor(type, levels=c("AUROC", "AUPR", "F1", "E6", "E12")),
+           sex=factor(str_split_fixed(Id, "-", 3)[,2], levels=c("female", "both", "male")),
+           model=factor(str_split_fixed(Id, "-", 3)[,3]))
+  
+  # Below we use a dummy table and geom_blank to have the same xlimits for E6 and E12 panels
+  xrange <- as.numeric(df %>% filter(type %in% c("E6", "E12")) %>% summarise(low=min(low), high=max(high))) # range of x-axis for E6 and E12
+  xrange <- rep(xrange, 2)
+  mytype <- factor(rep(c("E6", "E12"), each=2), levels=c("AUROC", "AUPR", "F1", "E6", "E12"))
+  dummy <- tibble(Id="progesa-female-lmm", value=xrange, low=xrange, high=xrange, type=mytype)  # Dummy table to use the same x-axis limits for E6 and E12
+  #print(dummy)
+  
+  g <- df %>% ggplot(aes(y=Id, x=value, xmin=low, xmax=high)) + 
+    #ggstance::geom_pointrangeh(aes(colour=sex, shape=model)) + 
+    geom_pointrange(aes(colour=sex, fill=sex, shape=model), key_glyph = draw_key_rect) + 
+    labs(x="Value", y="Data and method", colour="Sex", shape="Model") + 
+    scale_colour_discrete(breaks = c("male", "female", "both")) +
+    scale_shape_discrete(breaks=c("lmm", "dlmm", "dt", "rf")) +
+    #scale_colour_manual(values = c("female" = 1, "male" = 2, "both" = 3)) +
+    geom_blank(data=dummy) +
+    facet_wrap("type", scales="free_x")
+  #ggsave(filename="~/FRCBS/results-for-eba-paper/forest_plot.pdf", plot=g, dpi=600, units="mm", width=180)
+  return(g)
+}
+
+```
+
+```{r}
+g <- create_performance_forest_plot()
+if (save_figs)
+  ggsave(filename="performance_forest_plot.pdf", title="Performance forest plot", path=fig_path, plot=g, dpi=600, units="mm", width=180)
+g
+```
+## Calibration plots
+
+
+
+```{r cars}
+g <- calibration_plots(ids)
+if (save_figs)
+  ggsave(filename="calibration_plots.pdf", title="Calibration plots", path=fig_path, plot=g, dpi=600, units="mm", width=180)
+g
+```
+
+## Classification scatter plot for male Finngen DLMM
+
+```{r}
+
+generate_my_breaks <- function(step) {
+  # Break between limits at every position that is multiple of 'step' 
+  my_breaks <- function(limits) {
+    #step <- 0.2
+    m <- limits %/% step
+    m <- ifelse(m < 0, m+1, m)
+    m <- m*step
+    return(seq(m[1], m[2], step))
+  }
+  return(my_breaks)
+}
+
+create_classification_scatter_plot <- function(df, hb_threshold, probability_of_deferral_threshold) {
+  xymin <- min(min(df$predicted), min(df$observed))
+  xymax <- max(max(df$predicted), max(df$observed))
+  df <- df %>% 
+    mutate(new_predicted_label= ifelse(scores >= probability_of_deferral_threshold, 1, 0)) %>%
+    mutate(confusion_class = factor(ifelse(deferral == 1, 
+                                    ifelse(new_predicted_label == 1, "True positive", "False negative"),
+                                    ifelse(new_predicted_label == 1, "False positive", "True negative")),
+           levels=c("True positive", "False negative", "False positive", "True negative")))
+  scatter_plot <- ggplot(df, aes(x = observed, y=predicted, color = confusion_class)) +
+    geom_point() +
+    #xlim(xymin,xymax) + ylim(xymin,xymax) +
+    scale_x_continuous(breaks = generate_my_breaks(20), limits=c(xymin,xymax)) +
+    scale_y_continuous(breaks = generate_my_breaks(20), limits=c(xymin,xymax)) +
+    geom_abline(intercept = 0, slope = 1) +
+    labs(x = "Observed", y = "Predicted", colour = "Deferral status") +
+    #scale_colour_discrete(labels=c("Accepted", "Deferred")) +
+    geom_smooth(mapping=aes(x = observed, y=predicted), colour="black", show.legend = FALSE) +
+    geom_vline(xintercept = hb_threshold, linetype = "dashed") +
+    geom_hline(yintercept = hb_threshold, linetype = "dashed") +
+    theme(legend.position = "bottom") +
+    ggtitle("Observed vs predicted Hb-values")
+  return(scatter_plot)
+}
+```
+
+```{r}
+finngenn_male_raw <- get_raw_result_list("finngen-male-dlmm")
+
+```
+
+
+```{r}
+g <- create_classification_scatter_plot(finngenn_male_raw$comp_df, 135, 0.1)
+if (save_figs)
+  ggsave(filename="classification-scatter-plot-finngen-male-dlmm.pdf", title="Classifiction scatter plot finngen-male-dlmm", path=fig_path, 
+         plot=g, dpi=600, units="mm", width=180)
+g
+```
+

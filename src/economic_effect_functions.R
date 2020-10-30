@@ -4,6 +4,35 @@ library(tidyverse)
 library(caret)
 library(boot)
 
+#ids <- c("progesa-female-lmm", "progesa-female-dlmm", "progesa-male-lmm", "progesa-male-dlmm", "finngen-male-dlmm", "finngen-female-dlmm", 
+#         "findonor-female-dlmm", "findonor-male-dlmm", "progesa-both-dt", "progesa-both-rf")
+ids <- c("progesa-male-lmm", "progesa-female-lmm", "progesa-male-dlmm", "progesa-female-dlmm", "finngen-male-dlmm", "finngen-female-dlmm", 
+         "findonor-male-dlmm", "findonor-female-dlmm", "progesa-both-dt", "progesa-both-rf")
+
+dummy_ids <- c("finngen-male-stratified", "finngen-male-most-frequent", "finngen-male-prior", "finngen-male-uniform", "finngen-male-deferred")
+
+# These are from Progesa data
+get_mikkos_cost_constants <- function() {
+  return(list(
+    mr=0.4732352,
+    fr=0.5267648,
+    mdr=0.2335795,
+    fdr=0.7664205,
+    d=0.03269718
+  ))
+}
+
+data_parameters <- get_mikkos_cost_constants()
+fixed_parameters <- list(Pm=2, Pd=60, Fn=0.1066, rl=0)
+
+parameters <- c(data_parameters, fixed_parameters)
+
+load_single <- function(filename) {
+  names <- load(filename, verbose=FALSE)
+  stopifnot(length(names) == 1)
+  return(get(names))
+}
+
 filter_donations <- function(data, 
                              donor=NULL, donation13=NULL, site=NULL,
                              date=NULL, phleb_start=NULL, status=NULL,
@@ -107,21 +136,6 @@ get_cost_constants <- function(data) {
   ))
 }
 
-# These are from Progesa data
-get_mikkos_cost_constants <- function() {
-  return(list(
-    mr=0.4732352,
-    fr=0.5267648,
-    mdr=0.2335795,
-    fdr=0.7664205,
-    d=0.03269718
-  ))
-}
-
-data_parameters <- get_mikkos_cost_constants()
-fixed_parameters <- list(Pm=2, Pd=60, Fn=0.1066, rl=0)
-
-parameters <- c(data_parameters, fixed_parameters)
 
 #get_cost <- function(TPR6, FPR6, TPR12, FPR12, d.=d, mr.=mr, fr.=fr, mdr.=mdr, fdr.=fdr, Pm.=Pm, Pd.=Pd, Fn.=Fn, rl.=rl) {
 get_cost <- function(TPR6, FPR6, TPR12, FPR12, p = parameters) {
@@ -233,43 +247,36 @@ get_linear_progesa_rates <- function() {
   return(list(TPR=TPR,FPR=FPR))
 }
 
-load_single <- function(filename) {
-  names <- load(filename, verbose=FALSE)
-  stopifnot(length(names) == 1)
-  return(get(names))
+
+get_raw_result_list <- function(id) {
+  dir="~/FRCBS/interval_prediction/data/raw_results/"
+  if (id == "progesa-female-lmm") {
+    file <- "raw_result_female_date-2020-08-12-gender-female-sample_fraction-1.0-method-no-fix-hlen-7-cores-3-extra_id-progesa-test.rdata"
+  } else if (id == "progesa-female-dlmm") {
+    file <- "raw_result_female_icp_date-2020-08-12-gender-female-sample_fraction-1.0-method-icp-fix-hlen-7-extra_id-progesa-test.rdata"
+  } else if (id == "progesa-male-lmm") {
+    file <- "raw_result_male_date-2020-08-18-gender-male-sample_fraction-1.0-method-no-fix-hlen-7-iterations-2400-extra_id-progesa-test.rdata"
+  } else if (id == "progesa-male-dlmm") {
+    file <- "raw_result_male_icp_date-2020-08-18-gender-male-sample_fraction-1.0-method-icp-fix-hlen-7-iterations-2400-extra_id-progesa-test.rdata"
+  } else if (id == "finngen-male-dlmm") {
+    file <- "raw_result_male_icp_date-2020-08-09-gender-both-sample_fraction-1.0-method-icp-fix-hlen-7-extra_id-finngen-test-data.rdata"
+  } else if (id == "finngen-female-dlmm") {
+    file <- "raw_result_female_icp_date-2020-08-09-gender-both-sample_fraction-1.0-method-icp-fix-hlen-7-extra_id-finngen-test-data.rdata"
+  } else {
+    stop(sprintf("Unknown id %s", id))
+  }
+  result_list<- load_single(paste0(dir, file))
+  return(result_list)
 }
 
 # The result dataframes are stored in various places and forms. This gets them in uniform manner. 
 get_data_frame <- function(id) {
-  dir="~/FRCBS/interval_prediction/data/raw_results/"
+  
   process <- function(df) { 
     return(df %>% select(Deferred=scores, obs=deferral) %>% mutate(obs=factor(ifelse(obs==1, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))) 
   }
-  if (id == "progesa-female-lmm") {
-    file <- "raw_result_female_date-2020-08-12-gender-female-sample_fraction-1.0-method-no-fix-hlen-7-cores-3-extra_id-progesa-test.rdata"
-    df <- load_single(paste0(dir, file))$comp_df
-    return(process(df))
-  } else if (id == "progesa-female-dlmm") {
-    file <- "raw_result_female_icp_date-2020-08-12-gender-female-sample_fraction-1.0-method-icp-fix-hlen-7-extra_id-progesa-test.rdata"
-    df <- load_single(paste0(dir, file))$comp_df
-    return(process(df))
-  } else if (id == "progesa-male-lmm") {
-    file <- "raw_result_male_date-2020-08-18-gender-male-sample_fraction-1.0-method-no-fix-hlen-7-iterations-2400-extra_id-progesa-test.rdata"
-    df <- load_single(paste0(dir, file))$comp_df
-    return(process(df))
-  } else if (id == "progesa-male-dlmm") {
-    file <- "raw_result_male_icp_date-2020-08-18-gender-male-sample_fraction-1.0-method-icp-fix-hlen-7-iterations-2400-extra_id-progesa-test.rdata"
-    df <- load_single(paste0(dir, file))$comp_df
-    return(process(df))
-  } else if (id == "finngen-male-dlmm") {
-    file <- "raw_result_male_icp_date-2020-08-09-gender-both-sample_fraction-1.0-method-icp-fix-hlen-7-extra_id-finngen-test-data.rdata"
-    df <- load_single(paste0(dir, file))$comp_df
-    return(process(df))
-  } else if (id == "finngen-female-dlmm") {
-    file <- "raw_result_female_icp_date-2020-08-09-gender-both-sample_fraction-1.0-method-icp-fix-hlen-7-extra_id-finngen-test-data.rdata"
-    df <- load_single(paste0(dir, file))$comp_df
-    return(process(df))
-  } else if (id == "findonor-female-dlmm") {
+
+  if (id == "findonor-female-dlmm") {
     file <- "/home/toivoja/FRCBS/interval_prediction/data/model_fits/hfc_2108.rdata"
     temp <- load_single(file)
     df <- bind_rows(temp[[1]]$results, temp[[2]]$results, temp[[3]]$results, temp[[4]]$results)
@@ -288,13 +295,38 @@ get_data_frame <- function(id) {
     df <- as_tibble(load_single("~/FRCBS/interval-sims/rrfFit__dtree_roc_validate_probs.rdata"))
     df <- df %>% mutate(obs = factor(ifelse(obs == 2, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))
     return(df)
+  } else if (id == "finngen-male-stratified") {
+    df <- get_data_frame("finngen-male-dlmm")
+    n <- nrow(df)
+    prob <- mean(df$obs == "Deferred")
+    set.seed(123)
+    df <- df %>% mutate(Deferred = sample(c(0, 1), n, replace=TRUE, prob=c(1-prob, prob)))
+  } else if (id == "finngen-male-most-frequent") {
+    df <- get_data_frame("finngen-male-dlmm")
+    n <- nrow(df)
+    t <- table(df$obs)
+    prob <- ifelse(t[["Deferred"]] >= t[["Accepted"]], 1, 0)
+    df <- df %>% mutate(Deferred = prob)
+  } else if (id == "finngen-male-prior") {
+    df <- get_data_frame("finngen-male-dlmm")
+    n <- nrow(df)
+    prob <- mean(df$obs == "Deferred")
+    df <- df %>% mutate(Deferred = prob)
+  } else if (id == "finngen-male-uniform") {
+    df <- get_data_frame("finngen-male-dlmm")
+    n <- nrow(df)
+    set.seed(456)
+    df <- df %>% mutate(Deferred = runif(n, min=0, max=1))
+  } else if (id == "finngen-male-deferred") {
+    df <- get_data_frame("finngen-male-dlmm")
+    n <- nrow(df)
+    df <- df %>% mutate(Deferred = 1.0)
   } else {
-    stop("Unknown id")
+    df <- get_raw_result_list(id)$comp_df
+    return(process(df))
   }
 }
 
-ids <- c("progesa-female-lmm", "progesa-female-dlmm", "progesa-male-lmm", "progesa-male-dlmm", "finngen-male-dlmm", "finngen-female-dlmm", 
-         "findonor-female-dlmm", "findonor-male-dlmm", "progesa-both-dt", "progesa-both-rf")
 
 # Rates from random forest
 get_rf_rates <- function() {
@@ -459,28 +491,6 @@ process_all_data <- function(ids) {
   return(df)
 }
 
-# Show AUROC, AUPR, F1, E6, and E12 as forest plot
-create_performance_forest_plot <- function() {
-  df <- read_csv("~/FRCBS/results-for-eba-paper/raw_data.csv")
-  df <- df %>%
-    mutate(Id=factor(Id, levels=rev(ids)),
-           type=factor(type, levels=c("AUROC", "AUPR", "F1", "E6", "E12")))
-  
-  # Below we use a dummy table and geom_blank to have the same xlimits for E6 and E12 panels
-  xrange <- as.numeric(df %>% filter(type %in% c("E6", "E12")) %>% summarise(low=min(low), high=max(high))) # range of x-axis for E6 and E12
-  xrange <- rep(xrange, 2)
-  mytype <- factor(rep(c("E6", "E12"), each=2), levels=c("AUROC", "AUPR", "F1", "E6", "E12"))
-  dummy <- tibble(Id="progesa-female-lmm", value=xrange, low=xrange, high=xrange, type=mytype)  # Dummy table to use the same x-axis limits for E6 and E12
-  #print(dummy)
-  
-  g <- df %>% ggplot(aes(y=Id, x=value, xmin=low, xmax=high)) + 
-    geom_pointrange() + 
-    ylab("Data and method") + 
-    geom_blank(data=dummy) +
-    facet_wrap("type", scales="free_x")
-  ggsave(filename="~/FRCBS/results-for-eba-paper/forest_plot.pdf", plot=g, dpi=600, units="mm", width=180)
-  return(g)
-}
 
 
 test_get_all_costs <- function() {
@@ -513,14 +523,16 @@ calibration_plots <- function(ids) {
   df <- df %>% 
     group_by(Id) %>%
     mutate(cat=cut(Deferred, seq(0.0, 1.0, length.out = 11))) %>%
-    group_by(Id, cat, .drop=FALSE) %>% summarise(true_bin_prob = mean(obs=="Deferred")) %>%
+    group_by(Id, cat, .drop=FALSE) %>% summarise(true_bin_prob = mean(obs=="Deferred"), count=n()) %>%
     ungroup() %>%
     mutate(Id = factor(Id, levels=ids))
   
-  g <- df %>% ggplot(aes(cat, true_bin_prob)) + 
+  g <- df %>% ggplot(aes(cat, true_bin_prob, colour=count)) + 
     geom_point() + 
-    ylim(0, 1) +
-    labs(x="Predicted probability", y="True probability in each bin") +
+    geom_text(aes(label=count), colour="black", nudge_y=0.05) +
+    ylim(0, 1.05) +
+    labs(x="Predicted probability of deferral", y="True probability of deferral in each bin") +
+    scale_colour_gradient(name = "Count", trans = "log10") +
     geom_abline(aes(intercept=-0.1, slope=0.1)) +
     facet_wrap("Id") +
     theme(axis.text.x = element_text(angle = 45, vjust = 0.5))
@@ -529,6 +541,15 @@ calibration_plots <- function(ids) {
   return(g)
 }
 
+roc_wrapper <- function(df) {
+  df <- df %>% rename(scores = Deferred, labels=obs) %>% mutate(labels = ifelse(labels=="Accepted", 0, 1))
+  return(create_roc_new(df$labels, df$scores))
+}
+
+pr_wrapper <- function(df) {
+  df <- df %>% rename(scores = Deferred, labels=obs) %>% mutate(labels = ifelse(labels=="Accepted", 0, 1))
+  return(create_precision_recall_new(df$labels, df$scores))
+}
 cost_func <- function(q, atot, Pm, Pd, F, Fn, rloss) {Pm * ((F*atot) / (F + Fn*(atot-1)) - 1 - q*rloss) - Pd*q}
 
 cost_func_simplified <- function(q, atot) {2 / ((1-0.1066)/atot + 0.1066)  - 2 - 60*q}
