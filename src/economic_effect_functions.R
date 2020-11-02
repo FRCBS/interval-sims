@@ -504,42 +504,7 @@ test_get_all_costs <- function() {
 }
 
 
-calibration_plot <- function(df, use_my_method=FALSE) {
-  if (use_my_method) {
-    df$cat <- cut(df$Deferred, seq(0.0, 1.0, length.out = 11))
-    df2 <- df %>% group_by(cat, .drop=FALSE) %>% summarise(true_bin_prob = mean(obs=="Deferred"))
-    df2 %>% ggplot(aes(cat, true_bin_prob)) + geom_point() + ylim(0, 1)
-  } else {
-    cal <- calibration(obs ~ Deferred, data=df, class="Deferred", cuts=11)
-    ggplot(cal) + ylim(0, 100)
-  }
-}
 
-
-calibration_plots <- function(ids) {
-  data_frames <- map(ids, get_data_frame)
-  names(data_frames) <- ids
-  df <- bind_rows(data_frames, .id="Id")
-  df <- df %>% 
-    group_by(Id) %>%
-    mutate(cat=cut(Deferred, seq(0.0, 1.0, length.out = 11))) %>%
-    group_by(Id, cat, .drop=FALSE) %>% summarise(true_bin_prob = mean(obs=="Deferred"), count=n()) %>%
-    ungroup() %>%
-    mutate(Id = factor(Id, levels=ids))
-  
-  g <- df %>% ggplot(aes(cat, true_bin_prob, colour=count)) + 
-    geom_point() + 
-    geom_text(aes(label=count), colour="black", nudge_y=0.05) +
-    ylim(0, 1.05) +
-    labs(x="Predicted probability of deferral", y="True probability of deferral in each bin") +
-    scale_colour_gradient(name = "Count", trans = "log10") +
-    geom_abline(aes(intercept=-0.1, slope=0.1)) +
-    facet_wrap("Id") +
-    theme(axis.text.x = element_text(angle = 45, vjust = 0.5))
-  
-  #return(df)
-  return(g)
-}
 
 roc_wrapper <- function(df) {
   df <- df %>% rename(scores = Deferred, labels=obs) %>% mutate(labels = ifelse(labels=="Accepted", 0, 1))
