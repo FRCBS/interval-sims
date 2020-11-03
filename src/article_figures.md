@@ -36,32 +36,8 @@ Effect sizes of variables from eProgesa and Biobank using dynamic linear
 mixed model. In addition, variables importance from random forest
 algorithm.
 
-    # create_variable_importance_plot <- function(rrfFit_roc, descript, base_size = 11) {
-    #   rrfFit_rocImp <- varImp(rrfFit_roc, scale = FALSE)
-    #   rrfFit.varimp <- as_tibble(cbind(rownames(rrfFit_rocImp$importance),rrfFit_rocImp$importance))
-    #   colnames(rrfFit.varimp) <- c("Variable","Importance")
-    #   rrfFit.varimp <- left_join(rrfFit.varimp, descript, by=c("Variable"="Variable")) %>% select(Variable,Pretty,Importance) %>% arrange(Importance)
-    #   
-    #   rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "previous_Hb_defTRUE"] <- "Previous donation deferred"
-    #   rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "warm_seasonTRUE"] <- "Warm season"
-    #   rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "genderWomen"] <- "Sex"
-    #   
-    #   varimp.plot <- ggplot(rrfFit.varimp) + 
-    #     geom_col(aes(y=Importance, x=reorder(Pretty, Importance)), alpha=0.7) + 
-    #     coord_flip() +
-    #     xlab(NULL) + 
-    #     theme_gray(base_size = base_size)
-    #     #xlab("Variable")
-    #   
-    #   #filename="../results/rrfFit_roc_importance.pdf"
-    #   #ggsave(filename=filename, varimp.plot, width = 180,  height = 80,units="mm", dpi=600, scale=1.0)
-    #   return(varimp.plot)
-    # }
-
-    # Creates a forest plot of means and confidence intervals from posterior distributions.
-    # Puts both male and female results in the same plot.
-    create_double_forest_plot <- function(male_posterior, female_posterior, variables, combined_variables, base_size = 11) {
-      for (gender in c("male", "female")) {
+    get_dlmm_df <- function(male_posterior, female_posterior, variables, combined_variables) {
+        for (gender in c("male", "female")) {
         #posterior <- ifelse(gender == "male", male_posterior, female_posterior)
         if (gender == "male") {
           posterior <- male_posterior
@@ -87,26 +63,41 @@ algorithm.
         mutate(gender = factor(gender, levels=c("female", "both", "male"))) %>%
         rename(Pretty=names) %>%
         mutate(Pretty=factor(Pretty, levels=levels(combined_variables$Pretty)))
-      cis <- result
-      #result <- DescTools::Rev(result, margin=1)   # Reverse the order of rows so they appear in correct order in the forest plot
-      print(head(result))
-      #combined_variables <- combined_variables %>% 
-        #rename(names=Pretty) %>%
-        #mutate(stripe=factor(row_number()%%2))
-      result <- left_join(combined_variables, result, by="Pretty") %>%
-        mutate(Pretty=fct_rev(Pretty))
+      result <- left_join(combined_variables, result, by="Pretty")
+      return(result)
       
-        #mutate(Pretty=factor(Pretty, levels=rev(combined_variables$Pretty)))
-        # group_by(gender) %>%
-        # mutate(stripe=factor(row_number()%%2)) %>%
-        # ungroup()
-      df1 <<- result
+    }
+
+    get_rf_df <- function(rrfFit_roc, descript, combined_variables) {
+      rrfFit_rocImp <- varImp(rrfFit_roc, scale = FALSE)
+      #rrfFit.varimp <- as_tibble(cbind(rownames(rrfFit_rocImp$importance),rrfFit_rocImp$importance))
+      rrfFit.varimp <- rownames_to_column(rrfFit_rocImp$importance)
+      colnames(rrfFit.varimp) <- c("Variable","Importance")
+      rrfFit.varimp <- left_join(rrfFit.varimp, descript, by=c("Variable"="Variable")) %>% select(Variable, Pretty, Importance) %>% arrange(Importance)
+      
+      rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "previous_Hb_defTRUE"] <- "Previous donation deferred"
+      rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "warm_seasonTRUE"] <- "Warm season"
+      rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "genderWomen"] <- "Sex"
+      
+      rrfFit.varimp <- rrfFit.varimp %>% 
+        mutate(Pretty=factor(Pretty, levels=levels(combined_variables$Pretty)),
+               gender=factor("both", levels=c("female", "both", "male")))
+      rrfFit.varimp <- left_join(combined_variables, rrfFit.varimp, by="Pretty")
+      return(rrfFit.varimp)  
+    }
+
+    # Creates a forest plot of means and confidence intervals from posterior distributions.
+    # Puts both male and female results in the same plot.
+    create_double_forest_plot <- function(male_posterior, female_posterior, variables, combined_variables, base_size = 11) {
+      result <- get_dlmm_df(male_posterior, female_posterior, variables, combined_variables)
+      cis <- result
+      
+      result <- result %>%
+        mutate(Pretty=fct_rev(Pretty))
+
       plot <- result %>% 
-        # mutate(Pretty=factor(names, levels=rev(combined_variables$names)), 
-        #        stripe=factor(row_number()%%2)) %>%
         ggplot() +     
         geom_vline(aes(xintercept=0), color="lightgray") +
-        #geom_pointrange() +
         ggstance::geom_pointrangeh(aes(y=Pretty, x=mean, xmin=low, xmax=high, color=gender),
                                    position=position_dodge2(width=0.8, padding=0.1), size=0.25) + # ggstance is required to make legend keys horizontal
         geom_rect(data=combined_variables %>% filter(stripe==1), 
@@ -125,31 +116,15 @@ algorithm.
     }
 
 
+
     create_variable_importance_plot2 <- function(rrfFit_roc, descript, combined_variables, base_size = 11) {
-      rrfFit_rocImp <- varImp(rrfFit_roc, scale = FALSE)
-      rrfFit.varimp <- as_tibble(cbind(rownames(rrfFit_rocImp$importance),rrfFit_rocImp$importance))
-      colnames(rrfFit.varimp) <- c("Variable","Importance")
-      rrfFit.varimp <- left_join(rrfFit.varimp, descript, by=c("Variable"="Variable")) %>% select(Variable,Pretty,Importance) %>% arrange(Importance)
+      rrfFit.varimp <- get_rf_df(rrfFit_roc, descript, combined_variables)
       
-      rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "previous_Hb_defTRUE"] <- "Previous donation deferred"
-      rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "warm_seasonTRUE"] <- "Warm season"
-      rrfFit.varimp$Pretty[rrfFit.varimp$Variable == "genderWomen"] <- "Sex"
-      
-      #pretty <- descript["Pretty"]
-      #pretty <- combined_variables
-      rrfFit.varimp <- rrfFit.varimp %>% mutate(Pretty=factor(Pretty, levels=levels(combined_variables$Pretty)))
-      rrfFit.varimp <- left_join(combined_variables, rrfFit.varimp, by="Pretty")
 
       var_imp <- rrfFit.varimp %>%
-          mutate(Pretty=fct_rev(Pretty),
-                 gender=factor("both", levels=c("female", "both", "male"))) 
-                 #stripe=factor(row_number()%%2))
-      print(var_imp) 
-      df2 <<- var_imp
+          mutate(Pretty=fct_rev(Pretty))
+                 
       varimp.plot <- var_imp %>% 
-          # rrfFit.varimp %>%
-          # mutate(Pretty=factor(Pretty, levels=rev(Pretty)), 
-          #        stripe=factor(row_number()%%2)) %>%
         ggplot() + 
         ggstance::geom_pointrangeh(aes(y=Pretty, x=Importance, xmin=0, xmax=Importance, colour = gender), # ggstance is required to make legend keys horizontal
                                    position=position_dodge2(width=0.8, padding=0.1), size=0.25, inherit.aes = FALSE) +   
@@ -178,10 +153,11 @@ algorithm.
                                               base_size = 11
     ) {
       rrfFit_roc <- load_single("~/FRCBS/interval_prediction/results/rrfFit_roc.rdata")
+      
       combined_variables <- tibble(Pretty=c(variables, "Life time donations", "Sex", "First Hb")) %>%
-        mutate(stripe=factor(row_number()%%2),
+        mutate(stripe=factor(row_number()%%2),    # this is used to make the gray/white background
                Pretty=factor(Pretty, levels=Pretty))
-      combined_variables <<- combined_variables
+      
       forest <- create_double_forest_plot(male_posterior, female_posterior, variables, combined_variables, base_size = base_size)$plot
       importance <- create_variable_importance_plot2(rrfFit_roc, descript, combined_variables, base_size = base_size)
       
@@ -209,7 +185,7 @@ algorithm.
     female_posterior <- finngenn_female_raw$samples
     variables <- finngenn_male_raw$pretty_variable_names
     # Give a more descriptive name to this variable
-    variables <- replace(variables, variables=="Previous Hb deferral", "Previous donation deferred") #"Previous donation deferred", #"Previous Hb deferral"
+    variables <- replace(variables, variables=="Previous Hb deferral", "Previous donation deferred")
 
     if (save_figs) {
         filename <- paste(fig_path, "effect_size_importance.pdf", sep="/")
@@ -218,38 +194,115 @@ algorithm.
     }
     create_forest_importance_plot(male_posterior, female_posterior, variables, filename=filename)
 
-    ## # A tibble: 6 x 5
-    ##   Pretty                               gender     mean      low     high
-    ##   <fct>                                <fct>     <dbl>    <dbl>    <dbl>
-    ## 1 Days to previous full blood donation male    0.0152   0.00691  0.0241 
-    ## 2 Age                                  male    0.00742 -0.0190   0.0349 
-    ## 3 Previous donation deferred           male    0.171    0.0523   0.303  
-    ## 4 Year                                 male   -0.0166  -0.0299  -0.00366
-    ## 5 Warm season                          male   -0.0684  -0.0758  -0.0611 
-    ## 6 Consecutive deferrals                male   -0.00380 -0.0303   0.0232 
-    ## # A tibble: 22 x 5
-    ##    Pretty                           stripe Variable            Importance gender
-    ##    <fct>                            <fct>  <chr>                    <dbl> <fct> 
-    ##  1 Days to previous full blood don… 1      days_to_previous_fb    0.0256  both  
-    ##  2 Age                              0      age                    0.0149  both  
-    ##  3 Previous donation deferred       1      previous_Hb_defTRUE    0.00380 both  
-    ##  4 Year                             0      <NA>                  NA       both  
-    ##  5 Warm season                      1      warm_seasonTRUE        0.00353 both  
-    ##  6 Consecutive deferrals            0      consecutive_deferr…    0.00385 both  
-    ##  7 Recent donations                 1      recent_donations       0.0155  both  
-    ##  8 Recent deferrals                 0      recent_deferrals       0.0343  both  
-    ##  9 Hour                             1      hour                   0.00206 both  
-    ## 10 Previous Hb                      0      previous_Hb            0.0975  both  
-    ## # … with 12 more rows
-
     ## Warning: Removed 3 rows containing missing values (geom_pointrangeh).
 
     ## Warning: Removed 10 rows containing missing values (geom_pointrangeh).
 
 ![](article_figures_files/figure-markdown_strict/unnamed-chunk-4-1.png)
+\#\# Alternative effect sizes and importances of variables
+
+    alternative_create_forest_importance_plot <- function(male_posterior, female_posterior, variables,
+                                               filename=NULL,
+                                               width = 180,  # width of the combined figure in millimetres
+                                              base_size = 11
+    ) {
+      rrfFit_roc <- load_single("~/FRCBS/interval_prediction/results/rrfFit_roc.rdata")
+      
+      combined_variables <- tibble(Pretty=c(variables, "Life time donations", "Sex", "First Hb")) %>%
+        mutate(stripe=factor(row_number()%%2),    # this is used to make the gray/white background
+               Pretty=factor(Pretty, levels=Pretty))
+      
+      result <- get_dlmm_df(male_posterior, female_posterior, variables, combined_variables)
+      varimp <- get_rf_df(rrfFit_roc, descript, combined_variables)
+      
+      result <- result %>%
+        mutate(Pretty=fct_rev(Pretty))
+
+      var_imp <- varimp %>%
+        mutate(Pretty=fct_rev(Pretty),
+               mean=Importance,
+               low=0,
+               high=Importance)
+
+      final <- bind_rows(`Regression coefficient`=result, Importance=var_imp, .id="method") %>%
+        mutate(method=factor(method, levels=c("Regression coefficient", "Importance")))
+      
+      plot <- final %>% 
+        ggplot() +     
+        geom_vline(aes(xintercept=0), color="lightgray") +
+        ggstance::geom_pointrangeh(aes(y=Pretty, x=mean, xmin=low, xmax=high, color=gender),
+                                   position=position_dodge2(width=0.8, padding=0.1), size=0.25) + # ggstance is required to make legend keys horizontal
+        geom_rect(data=combined_variables %>% filter(stripe==1), 
+                  mapping=aes(ymax = as.numeric(Pretty) + 0.5,
+                              ymin = as.numeric(Pretty) - 0.5),
+                  fill = "gray", xmin=-Inf, xmax=Inf, alpha = 0.1, show.legend = FALSE, colour=NA) +
+        labs(title=NULL,
+             x=NULL, y=NULL, colour="Sex") +
+        scale_colour_discrete(drop=FALSE, breaks = c("male", "female", "both")) + 
+        facet_wrap("method", scales="free_x") +
+        theme_classic(base_size = base_size) + 
+        theme(legend.position = "bottom", legend.direction = "horizontal", strip.background = element_rect(fill = NULL, color = "white", size = 1))
+      
+                 
+    #    ggstance::geom_pointrangeh(aes(y=Pretty, x=Importance, xmin=0, xmax=Importance, colour = gender), # ggstance is required to make legend keys horizontal
+    #                               position=position_dodge2(width=0.8, padding=0.1), size=0.25, inherit.aes = FALSE) +   
+         
+        #inherit.aes = FALSE) +
+    #    guides(y="none") +
+
+      return(list(plot=plot, final=final))
+    }
+
+    g <- alternative_create_forest_importance_plot(male_posterior, female_posterior, variables, filename=filename)
+
+    if (save_figs)
+      ggsave(filename="alternative_effect_size_importance.pdf", title="Performance forest plot", path=fig_path, plot=g, dpi=600, units="mm", width=180)
+    g
+
+    ## $plot
+
+    ## Warning: Removed 13 rows containing missing values (geom_pointrangeh).
+
+![](article_figures_files/figure-markdown_strict/unnamed-chunk-6-1.png)
+
+    ## 
+    ## $final
+    ## # A tibble: 63 x 9
+    ##    method   Pretty  stripe gender     mean      low     high Variable Importance
+    ##    <fct>    <fct>   <fct>  <fct>     <dbl>    <dbl>    <dbl> <chr>         <dbl>
+    ##  1 Regress… Days t… 1      male    0.0152   0.00691  2.41e-2 <NA>             NA
+    ##  2 Regress… Days t… 1      female  0.0446   0.0353   5.38e-2 <NA>             NA
+    ##  3 Regress… Age     0      male    0.00742 -0.0190   3.49e-2 <NA>             NA
+    ##  4 Regress… Age     0      female  0.198    0.176    2.22e-1 <NA>             NA
+    ##  5 Regress… Previo… 1      male    0.171    0.0523   3.03e-1 <NA>             NA
+    ##  6 Regress… Previo… 1      female -0.0224  -0.0807   3.81e-2 <NA>             NA
+    ##  7 Regress… Year    0      male   -0.0166  -0.0299  -3.66e-3 <NA>             NA
+    ##  8 Regress… Year    0      female -0.0130  -0.0245  -2.21e-4 <NA>             NA
+    ##  9 Regress… Warm s… 1      male   -0.0684  -0.0758  -6.11e-2 <NA>             NA
+    ## 10 Regress… Warm s… 1      female -0.0638  -0.0715  -5.69e-2 <NA>             NA
+    ## # … with 53 more rows
 
 Performance forest plot
 -----------------------
+
+    get_threshold_df <- function() {
+      t6 <- tibble(
+          Id = factor(ids),
+          type = factor("Threshold"),
+          value = c(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.4, 0.6))
+      t12 <- tibble(
+          Id = factor(ids),
+          type = factor("Threshold"),
+          value = c(0.2, 0.2, 0.1, 0.1, 0.1, 0.2, 0.3, 0.3, 0.8, 0.8)
+      )
+      t <- bind_rows(t6, t12)
+      t <- t %>%
+        mutate(low=value, 
+               high=value,
+               sex=factor(str_split_fixed(Id, "-", 3)[,2], levels=c("female", "both", "male")),
+               model=factor(str_split_fixed(Id, "-", 3)[,3]))
+      return(t)
+    }
 
     # Show AUROC, AUPR, F1, E6, and E12 as forest plot
     create_performance_forest_plot <- function() {
@@ -260,6 +313,9 @@ Performance forest plot
                sex=factor(str_split_fixed(Id, "-", 3)[,2], levels=c("female", "both", "male")),
                model=factor(str_split_fixed(Id, "-", 3)[,3]))
       
+      thresholds <- get_threshold_df()
+      df <- bind_rows(df, thresholds)
+      
       # Below we use a dummy table and geom_blank to have the same xlimits for E6 and E12 panels
       xrange <- as.numeric(df %>% filter(type %in% c("E6", "E12")) %>% summarise(low=min(low), high=max(high))) # range of x-axis for E6 and E12
       xrange <- rep(xrange, 2)
@@ -267,9 +323,12 @@ Performance forest plot
       dummy <- tibble(Id="progesa-female-lmm", value=xrange, low=xrange, high=xrange, type=mytype)  # Dummy table to use the same x-axis limits for E6 and E12
       #print(dummy)
       
-      #key_size <- as.numeric(grid::convertX(theme_get()$legend.key.size, "mm"))
-      key_size <- 1.8
+      #key_size <- grid::convertX(theme_get()$legend.key.size, "mm", valueOnly=TRUE)
+      #print(key_size)
+      key_size <- 1.8   # This results in box of size 6 mm
+      #key_size <- unit(6.096, "mm")
       #key_size <- unit(1.2, "lines")
+      #grid::convertX(grid::unit(1.2, "lines"), "mm")
       g <- df %>% ggplot(aes(y=Id, x=value, xmin=low, xmax=high)) + 
         ggstance::geom_pointrangeh(aes(colour=sex, shape=model)) + 
         #geom_pointrange(aes(colour=sex, fill=sex, shape=model), key_glyph = draw_key_rect) + 
@@ -279,6 +338,8 @@ Performance forest plot
         scale_shape_discrete(breaks=c("lmm", "dlmm", "dt", "rf")) +
         #scale_colour_manual(values = c("female" = 1, "male" = 2, "both" = 3)) +
         guides(colour = guide_legend(override.aes = list(shape = 15, linetype=0, size=key_size))) +
+        #guides(colour = guide_legend(override.aes = list(shape = 15, linetype=0))) +
+        #theme(legend.key.size = theme_get()$legend.key.size) +
         geom_blank(data=dummy) +
         facet_wrap("type", scales="free_x")
       #ggsave(filename="~/FRCBS/results-for-eba-paper/forest_plot.pdf", plot=g, dpi=600, units="mm", width=180)
@@ -302,7 +363,7 @@ Performance forest plot
 
     ## Warning: Removed 1 rows containing missing values (geom_pointrangeh).
 
-![](article_figures_files/figure-markdown_strict/unnamed-chunk-6-1.png)
+![](article_figures_files/figure-markdown_strict/unnamed-chunk-8-1.png)
 \#\# Calibration plots
 
     calibration_plot <- function(df, use_my_method=FALSE) {
@@ -408,4 +469,4 @@ Classification scatter plot for male Finngen DLMM
 
     ## `geom_smooth()` using method = 'gam' and formula 'y ~ s(x, bs = "cs")'
 
-![](article_figures_files/figure-markdown_strict/unnamed-chunk-9-1.png)
+![](article_figures_files/figure-markdown_strict/unnamed-chunk-11-1.png)
