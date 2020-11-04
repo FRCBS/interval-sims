@@ -120,17 +120,19 @@ create_double_forest_plot <- function(male_posterior, female_posterior, variable
   plot <- result %>% 
     ggplot() +     
     geom_vline(aes(xintercept=0), color="lightgray") +
-    ggstance::geom_pointrangeh(aes(y=Pretty, x=mean, xmin=low, xmax=high, color=gender),
-                               position=position_dodge2(width=0.8, padding=0.1), size=0.25) + # ggstance is required to make legend keys horizontal
     geom_rect(data=combined_variables %>% filter(stripe==1), 
               mapping=aes(ymax = as.numeric(Pretty) + 0.5,
                   ymin = as.numeric(Pretty) - 0.5),
                   #xmin = -Inf,
                   #xmax = Inf,
                   fill = "gray", xmin=-Inf, xmax=Inf, alpha = 0.1, show.legend = FALSE, colour=NA) +
+    ggstance::geom_pointrangeh(aes(y=Pretty, x=mean, xmin=low, xmax=high, color=gender),
+                               position=position_dodge2(width=0.8, padding=0.1), size=0.25) + # ggstance is required to make legend keys horizontal
     labs(title="", #title="Effects sizes of variables on Hb prediction",
          x="Regression coefficient", y=NULL, colour="Sex") +
     scale_colour_discrete(drop=FALSE, breaks = c("male", "female")) + 
+    scale_y_discrete() + # !!!!! This is important. Solves the problem with position_dodge2 and the order of rect and pointrange geoms !!!!!!
+                         # Otherwise following error results: Error: Discrete value supplied to continuous scale
     #guides(colour = guide_legend(reverse = TRUE)) + # Reverse the order of keys in the legend
     #theme_gray(base_size = base_size) + theme(legend.position = "bottom", legend.direction = "horizontal")
     theme_classic(base_size = base_size) + theme(legend.position = "bottom", legend.direction = "horizontal")
@@ -148,19 +150,21 @@ create_variable_importance_plot2 <- function(rrfFit_roc, descript, combined_vari
              
   varimp.plot <- var_imp %>% 
     ggplot() + 
+    geom_rect(data=combined_variables %>% filter(stripe==1),
+              mapping=aes(ymax = as.numeric(Pretty) + 0.5,
+                          ymin = as.numeric(Pretty) - 0.5),
+              #xmin = -Inf,
+              #xmax = Inf,
+              #fill = stripe), 
+              xmin=-Inf, xmax=Inf, alpha = 0.1, colour=NA, fill="gray", show.legend = FALSE, inherit.aes = FALSE) +
     ggstance::geom_pointrangeh(aes(y=Pretty, x=Importance, xmin=0, xmax=Importance, colour = gender), # ggstance is required to make legend keys horizontal
                                position=position_dodge2(width=0.8, padding=0.1), size=0.25, inherit.aes = FALSE) +   
                                #colour = hue_pal()(3)[2], size=0.25) +
-      geom_rect(data=combined_variables %>% filter(stripe==1),
-              mapping=aes(ymax = as.numeric(Pretty) + 0.5,
-                    ymin = as.numeric(Pretty) - 0.5),
-                    #xmin = -Inf,
-                    #xmax = Inf,
-                    #fill = stripe), 
-              xmin=-Inf, xmax=Inf, alpha = 0.1, colour=NA, fill="gray", show.legend = FALSE, inherit.aes = FALSE) +
     labs(y=NULL, colour="Sex") + 
     guides(y="none") +
     scale_colour_discrete(drop=FALSE, breaks=c("both")) +
+    scale_y_discrete() + # !!!!! This is important. Solves the problem with position_dodge2 and the order of rect and pointrange geoms !!!!!!
+                         # Otherwise following error results: Error: Discrete value supplied to continuous scale
     #theme_gray(base_size = base_size)
     theme_classic(base_size = base_size) + theme(legend.position = "bottom", legend.direction = "horizontal")
 
@@ -221,6 +225,7 @@ if (save_figs) {
 }
 create_forest_importance_plot(male_posterior, female_posterior, variables, filename=filename)
 ```
+
 ## Alternative effect sizes and importances of variables
 
 ```{r}
@@ -244,42 +249,45 @@ alternative_create_forest_importance_plot <- function(male_posterior, female_pos
   var_imp <- varimp %>%
     mutate(Pretty=fct_rev(Pretty),
            mean=Importance,
-           low=0,
+           low=ifelse(is.na(Importance), NA, 0),
            high=Importance)
 
   final <- bind_rows(`Regression coefficient`=result, Importance=var_imp, .id="method") %>%
-    mutate(method=factor(method, levels=c("Regression coefficient", "Importance")))
+    mutate(method=factor(method, levels=c("Regression coefficient", "Importance"))) %>%
+    select(-Importance, -Variable, stripe)
+           
+  print(combined_variables)
   
   plot <- final %>% 
     ggplot() +     
     geom_vline(aes(xintercept=0), color="lightgray") +
-    ggstance::geom_pointrangeh(aes(y=Pretty, x=mean, xmin=low, xmax=high, color=gender),
-                               position=position_dodge2(width=0.8, padding=0.1), size=0.25) + # ggstance is required to make legend keys horizontal
-    geom_rect(data=combined_variables %>% filter(stripe==1), 
+    # ggstance is required to make legend keys horizontal
+    geom_rect(data=combined_variables %>% filter(stripe==1),
               mapping=aes(ymax = as.numeric(Pretty) + 0.5,
                           ymin = as.numeric(Pretty) - 0.5),
-              fill = "gray", xmin=-Inf, xmax=Inf, alpha = 0.1, show.legend = FALSE, colour=NA) +
-    labs(title=NULL,
-         x=NULL, y=NULL, colour="Sex") +
+              fill = "gray", xmin=-Inf, xmax=Inf, alpha = 0.1, show.legend = FALSE, colour=NA, inherit.aes = FALSE) +
+    ggstance::geom_pointrangeh(mapping=aes(y=Pretty, x=mean, xmin=low, xmax=high, color=gender),
+                               position=position_dodge2(width=0.8, padding=0.1), 
+                               size=0.25,  
+                               inherit.aes = FALSE) +
+    labs(title=NULL, x=NULL, y=NULL, colour="Sex") +
     scale_colour_discrete(drop=FALSE, breaks = c("male", "female", "both")) + 
+    scale_y_discrete() + # !!!!! This is important. Solves the problem with position_dodge2 and the order of rect and pointrange geoms !!!!!!
+                         # Otherwise following error results: Error: Discrete value supplied to continuous scale
     facet_wrap("method", scales="free_x") +
     theme_classic(base_size = base_size) + 
     theme(legend.position = "bottom", legend.direction = "horizontal", strip.background = element_rect(fill = NULL, color = "white", size = 1))
   
-             
-#    ggstance::geom_pointrangeh(aes(y=Pretty, x=Importance, xmin=0, xmax=Importance, colour = gender), # ggstance is required to make legend keys horizontal
-#                               position=position_dodge2(width=0.8, padding=0.1), size=0.25, inherit.aes = FALSE) +   
-     
-    #inherit.aes = FALSE) +
-#    guides(y="none") +
+            
 
   return(list(plot=plot, final=final))
 }
 ```
 
 ```{r}
-g <- alternative_create_forest_importance_plot(male_posterior, female_posterior, variables, filename=filename)
-
+res <- alternative_create_forest_importance_plot(male_posterior, female_posterior, variables, filename=filename)
+g <- res$plot
+final <- res$final
 if (save_figs)
   ggsave(filename="alternative_effect_size_importance.pdf", title="Performance forest plot", path=fig_path, plot=g, dpi=600, units="mm", width=180)
 g
@@ -304,7 +312,9 @@ get_threshold_df <- function() {
     mutate(low=value, 
            high=value,
            sex=factor(str_split_fixed(Id, "-", 3)[,2], levels=c("female", "both", "male")),
-           model=factor(str_split_fixed(Id, "-", 3)[,3]))
+           #model=factor(str_split_fixed(Id, "-", 3)[,3])
+           model=rep(c("t6", "t12"), each=length(ids))
+           )
   return(t)
 }
 
@@ -319,7 +329,8 @@ create_performance_forest_plot <- function() {
   
   thresholds <- get_threshold_df()
   df <- bind_rows(df, thresholds)
-  
+  df <- df %>% 
+    mutate(model = factor(model, levels=c("lmm", "dlmm", "dt", "rf", "t6", "t12")))
   # Below we use a dummy table and geom_blank to have the same xlimits for E6 and E12 panels
   xrange <- as.numeric(df %>% filter(type %in% c("E6", "E12")) %>% summarise(low=min(low), high=max(high))) # range of x-axis for E6 and E12
   xrange <- rep(xrange, 2)
@@ -339,7 +350,7 @@ create_performance_forest_plot <- function() {
     labs(x="Value", y="Data and method", colour="Sex", shape="Model") + 
     #scale_colour_manual(breaks = c("male", "female", "both"), values=c("yellow", "brown", "black"), aesthetics = c("color", "fill", "shape")) +
     scale_colour_discrete(breaks = c("male", "female", "both")) +
-    scale_shape_discrete(breaks=c("lmm", "dlmm", "dt", "rf")) +
+    scale_shape_manual(breaks=c("lmm", "dlmm", "dt", "rf"), values=c("square", "circle", "triangle", "diamond", "cross", "asterisk")) +
     #scale_colour_manual(values = c("female" = 1, "male" = 2, "both" = 3)) +
     guides(colour = guide_legend(override.aes = list(shape = 15, linetype=0, size=key_size))) +
     #guides(colour = guide_legend(override.aes = list(shape = 15, linetype=0))) +
@@ -347,17 +358,20 @@ create_performance_forest_plot <- function() {
     geom_blank(data=dummy) +
     facet_wrap("type", scales="free_x")
   #ggsave(filename="~/FRCBS/results-for-eba-paper/forest_plot.pdf", plot=g, dpi=600, units="mm", width=180)
-  return(g)
+  return(list(g=g, df=df))
 }
 
 ```
 
 ```{r}
-g <- create_performance_forest_plot()
+res <- create_performance_forest_plot()
+g <- res$g
+df <- res$df
 if (save_figs)
   ggsave(filename="performance_forest_plot.pdf", title="Performance forest plot", path=fig_path, plot=g, dpi=600, units="mm", width=180)
 g
 ```
+
 ## Calibration plots
 
 ```{r calibration plots}
@@ -462,3 +476,78 @@ if (save_figs)
 g
 ```
 
+
+```{r, eval=FALSE}
+jarkko_test <- function(male_posterior, female_posterior, variables,
+                                           filename=NULL,
+                                           width = 180,  # width of the combined figure in millimetres
+                                          base_size = 11
+) {
+  rrfFit_roc <- load_single("~/FRCBS/interval_prediction/results/rrfFit_roc.rdata")
+
+  combined_variables <- tibble(Pretty=c(variables, "Life time donations", "Sex", "First Hb")) %>%
+    mutate(stripe=factor(row_number()%%2),    # this is used to make the gray/white background
+           Pretty=factor(Pretty, levels=Pretty))
+
+  result <- get_dlmm_df(male_posterior, female_posterior, variables, combined_variables)
+  varimp <- get_rf_df(rrfFit_roc, descript, combined_variables)
+
+  result <- result %>%
+    mutate(Pretty=fct_rev(Pretty))
+
+  var_imp <- varimp %>%
+    mutate(Pretty=fct_rev(Pretty),
+           mean=Importance,
+           low=ifelse(is.na(Importance), NA, 0),
+           high=Importance)
+
+  final <- bind_rows(`Regression coefficient`=result, Importance=var_imp, .id="method") %>%
+    mutate(method=factor(method, levels=c("Regression coefficient", "Importance"))) %>%
+    select(-Importance, -Variable, stripe)
+
+#   final <- tibble(
+#             method = c("Regression coefficient",
+#                        "Regression coefficient","Importance"),
+#             Pretty = factor(c("Days to previous full blood donation","Days to previous full blood donation",
+#                        "Days to previous full blood donation")),
+#             #gender = c("male", "female", "both"),
+#               mean = c(0.0152091681221149,
+#                        0.0445741103338152,0.0255604042298423),
+#                low = c(0.00691102953212081, 0.0353192308283623, 0),
+#               high = c(0.0240855557569598,
+#                        0.0537929726515129,0.0255604042298423)
+# )
+  
+  #combined_variables <- tibble(Pretty=factor("Days to previous full blood donation"), stripe=factor(1))
+  
+  print(final)         
+  print(combined_variables)
+  vars <- c("Days to previous full blood donation", "Age", "Previous donation deferred", "Year")
+  plot <- final %>% #filter(Pretty %in% vars) %>%
+    ggplot(aes(color=gender)) +
+    geom_rect(data=combined_variables %>% filter(stripe==1),
+              mapping=aes(#ymax = as.numeric(Pretty) + 0.5,
+                          #ymin = as.numeric(Pretty) - 0.5
+                          ymax = as.numeric(Pretty) + 0.5,
+                          ymin = as.numeric(Pretty) - 0.5),
+              fill = "blue", 
+              #position="identity",
+              xmin=-Inf, xmax=Inf, alpha = 0.1, inherit.aes = FALSE) +
+    ggstance::geom_pointrangeh(#data=final, 
+                               mapping=aes(y=Pretty, x=mean, xmin=low, xmax=high),
+                               #position=position_dodge2(0.8)
+                               position=position_dodge2(width=0.8, padding=0.1)
+                               ) +
+    scale_y_discrete() +
+    facet_wrap("method", scales = "free_x") +
+    #coord_flip() +
+    theme_classic(base_size = base_size) 
+
+  return(list(plot=plot, final=final))
+}
+
+res <- jarkko_test(male_posterior, female_posterior, variables, filename=filename)
+final <- res$final
+g <- res$plot
+g
+```
