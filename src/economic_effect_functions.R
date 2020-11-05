@@ -9,6 +9,7 @@ library(boot)
 ids <- c("progesa-male-lmm", "progesa-female-lmm", "progesa-male-dlmm", "progesa-female-dlmm", "finngen-male-dlmm", "finngen-female-dlmm", 
          "findonor-male-dlmm", "findonor-female-dlmm", "progesa-both-dt", "progesa-both-rf")
 
+dummy2_ids <- c("progesa-female-dummy", "progesa-male-dummy")
 dummy_ids <- c("finngen-male-stratified", "finngen-male-most-frequent", "finngen-male-prior", "finngen-male-uniform", "finngen-male-deferred")
 
 # These are from Progesa data
@@ -192,8 +193,8 @@ get_cost <- function(TPR6, FPR6, TPR12, FPR12, p = parameters) {
   }
 }
 
-get_optimal_thresholds <- function(df, p=parameters) {
-  thresholds <- seq(0.1, .9, .1)
+get_optimal_thresholds <- function(df, p=parameters, thresholds = seq(0.1, .9, .1)) {
+  
   pred.classes <- data.frame(matrix(nrow=nrow(df),ncol=length(thresholds)))
   colnames(pred.classes) <- paste0("p_",thresholds)
   for (t in thresholds ) {
@@ -295,6 +296,12 @@ get_data_frame <- function(id) {
     df <- as_tibble(load_single("~/FRCBS/interval-sims/rrfFit__dtree_roc_validate_probs.rdata"))
     df <- df %>% mutate(obs = factor(ifelse(obs == 2, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))
     return(df)
+  } else if (id == "progesa-female-dummy") {
+    df <- load_single("~/FRCBS/interval-sims/progesa-validate-female-dummy.rdata")
+    return(df)
+  } else if (id == "progesa-male-dummy") {
+    df <- load_single("~/FRCBS/interval-sims/progesa-validate-male-dummy.rdata")
+    return(df)
   } else if (id == "finngen-male-stratified") {
     df <- get_data_frame("finngen-male-dlmm")
     n <- nrow(df)
@@ -321,7 +328,7 @@ get_data_frame <- function(id) {
     df <- get_data_frame("finngen-male-dlmm")
     n <- nrow(df)
     df <- df %>% mutate(Deferred = 1.0)
-  } else {
+  } else {         # Linear models
     df <- get_raw_result_list(id)$comp_df
     return(process(df))
   }
@@ -395,15 +402,15 @@ test_get_cost <- function(name, threshold=0.5) {
   
 }
 
-get_f1 <- function(df) {
-  pred.class <- factor( ifelse(df$Deferred >= 0.5, "Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
+get_f1 <- function(df, threshold = 0.5) {
+  pred.class <- factor( ifelse(df$Deferred >= threshold, "Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
   cm <- confusionMatrix(reference = df$obs, data = pred.class, positive = "Deferred", mode = "prec_recall")
   f1 <- cm$byClass["F1"]
   return(f1)
 }
 
 #boot code from https://github.com/FRCBS/changes_in_donor_health/blob/master/src/hypothesis_regressions.Rmd
-boot_cost <- function(boot_data, boot_ind, threshold6 = 0.6, threshold12 = 0.8, p){
+boot_cost <- function(boot_data, boot_ind, f1_threshold, threshold6 = 0.6, threshold12 = 0.8, p){
   #sample
   boot_data <- boot_data[boot_ind,]
   get_rates <- function(threshold) {
@@ -424,7 +431,7 @@ boot_cost <- function(boot_data, boot_ind, threshold6 = 0.6, threshold12 = 0.8, 
   costs <- unlist(costs)
   
   # Compute the F1 score using threshold 0.5
-  costs["F1"] <- get_f1(boot_data)
+  costs["F1"] <- get_f1(boot_data, threshold = f1_threshold)
   return(costs)
 }
 
@@ -449,7 +456,6 @@ compute_CI <-function(fit_boot){
         CI_inf[i_regressor] <- CI$normal[2]
         CI_sup[i_regressor] <- CI$normal[3]
       }
-      
     )
     if (!is.null(error_code) && error_code == -1) {
       CI_inf[i_regressor] <- NaN   # I have to do these outside the tryCatch block because the error handler cannot access these variables.
@@ -460,28 +466,36 @@ compute_CI <-function(fit_boot){
   return(tibble(variable = names(fit_boot$t0), CI_inf, CI_sup))
 }
 
-get_intervals <- function(df, threshold6=0.6, threshold12=0.8) {
-  #nb_boot <- 100
-  nb_boot <- nrow(df)
-  fit_boot <- boot(df, threshold6=threshold6, threshold12=threshold12, p=parameters, statistic = boot_cost, R = nb_boot, parallel="multicore", ncpus=4)
+get_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8) {
+  nb_boot <- 100
+  #nb_boot <- nrow(df)
+  fit_boot <- boot(df, f1_threshold=f1_threshold, threshold6=threshold6, threshold12=threshold12, p=parameters, 
+                   statistic = boot_cost, R = nb_boot, parallel="multicore", ncpus=4)
   ci <- compute_CI(fit_boot)
   ci <- ci %>% filter(variable %in% c("E6", "E12", "F1")) %>% pivot_longer(cols=c(CI_inf, CI_sup), names_to="type")
   return(ci)
 }
 
-process_data <- function(df) {
+process_data <- function(df, id) {
   print("Here")
-  res <-  get_optimal_thresholds(df)
-  f1 <- get_f1(df)
+  if (id %in% c("progesa-female-dummy", "progesa-male-dummy")) {
+    thresholds <-  seq(-150, -120, by=2)   # thresholds for inverse of hemoglobin
+    f1_threshold <- ifelse(id=="progesa-female-dummy", -125, -135)
+  } else {
+    thresholds <- seq(0.1, .9, .1)  # thresholds for probability of deferral
+    f1_threshold <- 0.5
+  }
+  res <-  get_optimal_thresholds(df, thresholds = thresholds)
+  f1 <- get_f1(df, threshold=f1_threshold)
   #print(f1)
-  ci <- get_intervals(df, threshold6 = res$threshold6, threshold12 = res$threshold12)
+  ci <- get_intervals(df, f1_threshold=f1_threshold, threshold6 = res$threshold6, threshold12 = res$threshold12)
   t <- tibble(variable=c("E6", "E12", "F1", "threshold6", "threshold12"), type="actual", value=c(res$E6, res$E12, f1, res$threshold6, res$threshold12))
   return(bind_rows(ci, t))
 }
 
 process_all_data <- function(ids) {
   data_frames <- map(ids, get_data_frame)
-  results <- map(data_frames, process_data)
+  results <- map2(data_frames, ids, process_data)
   names(results) <- ids
   df <- bind_rows(results, .id="Id") %>%
     mutate(type=map_chr(type, function(x) when(x, . == "actual" ~ "", . == "CI_inf" ~ "low", . == "CI_sup" ~ "high"))) %>%
