@@ -1,0 +1,126 @@
+---
+title: "Dummy classifier"
+author: "Jarkko Toivonen"
+date: "11/4/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+source("economic_effect_functions.R")
+```
+
+## Dummy model for females and males on Progesa data
+
+Use the preprocessed validate dataset from random forest runs. Dummy predictor uses -previous_Hb as score for deferral. 
+
+
+
+```{r}
+load("~/FRCBS/interval-sims/rf-train-and-validate-datas.rdata", verbose=TRUE)
+```
+
+
+```{r cars}
+
+logistic <- function(x) 1 / (1 + exp(-x))
+
+dummy_predictor <- function(df, Hb_threshold=NULL) {
+  if (is.null(Hb_threshold)) {
+    result <- tibble(Deferred = -df$previous_Hb,
+                     obs = df$Hb_deferral)
+  } else {
+    result <- tibble(Deferred = logistic(-(df$previous_Hb - Hb_threshold)), 
+                     obs = df$Hb_deferral)
+    
+  }
+  return(result)
+}
+
+# get_metrics <- function(df, previous_Hb_threshold) {
+#   df <- df %>% mutate(predicted_Hb_deferral=factor(ifelse(previous_Hb < previous_Hb_threshold, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))
+#   
+#   cm <- confusionMatrix(reference = df$Hb_deferral, data = df$predicted_Hb_deferral, positive = "Deferred", mode = "everything")
+#   f1 <- cm$byClass["F1"]
+#          #Sensitivity  = TPR
+#   TPR <- cm$byClass['Sensitivity']
+#   FPR <- 1 - cm$byClass['Specificity']
+#   temp <- get_cost(TPR, FPR, TPR, FPR, p = parameters) # The parameters are from file economic_effect_functions.R
+#   E6  <- temp$E6
+#   E12 <- temp$E12
+#   return(tibble(previous_Hb_threshold=previous_Hb_threshold, f1=f1, E6=E6, E12=E12))
+# }
+# 
+# optimize_threshold <- function(df) {
+#   thresholds <- seq(120, 150, by=2)
+#   result <- map_dfr(thresholds, function(t) get_metrics(df, t))
+#   
+#   threshold <- result %>%
+#     slice_max(f1) %>%
+#     pull(previous_Hb_threshold)
+#   return(list(threshold=threshold, result=result))
+# }
+
+```
+
+
+```{r}
+train_female <- train %>% filter(gender=="Women")
+train_male <- train %>% filter(gender=="Men")
+validate_female <- validate %>% filter(gender=="Women")
+validate_male <- validate %>% filter(gender=="Men")
+```
+
+```{r}
+# res_female <- optimize_threshold(train_female)
+# res_male <- optimize_threshold(train_male)
+```
+
+Optimized thresholds on previous Hb for females and males
+```{r}
+# female_previous_Hb_threshold <- res_female$threshold
+# male_previous_Hb_threshold <- res_male$threshold
+# female_previous_Hb_threshold
+# male_previous_Hb_threshold
+```
+
+```{r}
+# res_female$result
+# res_male$result
+```
+
+Final result on validate data
+```{r}
+
+# f1_female <- get_f1(validate_female, female_previous_Hb_threshold)
+# f1_female
+```
+
+```{r}
+
+# f1_male <- get_f1(validate_male, male_previous_Hb_threshold)
+# f1_male
+```
+
+```{r}
+prediction_female <- dummy_predictor(validate_female, 125)  # or would mean Hb be better centering point than deferral threshold
+prediction_male <- dummy_predictor(validate_male, 135)
+
+head(prediction_female)
+head(prediction_male)
+```
+
+```{r}
+save(prediction_female, file="~/FRCBS/interval-sims/progesa-validate-female-dummy.rdata")
+save(prediction_male, file="~/FRCBS/interval-sims/progesa-validate-male-dummy.rdata")
+```
+
+```{r}
+dummy_result <- process_all_data(dummy2_ids)
+```
+
+```{r}
+dummy_result
+```
+

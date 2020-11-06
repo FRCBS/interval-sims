@@ -477,9 +477,9 @@ get_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8) {
 }
 
 process_data <- function(df, id) {
-  print("Here")
+  #print("Here")
   if (id %in% c("progesa-female-dummy", "progesa-male-dummy")) {
-    thresholds <-  seq(-150, -120, by=2)   # thresholds for inverse of hemoglobin
+    thresholds <-  seq(-160, -110, by=2)   # thresholds for inverse of hemoglobin
     f1_threshold <- ifelse(id=="progesa-female-dummy", -125, -135)
   } else {
     thresholds <- seq(0.1, .9, .1)  # thresholds for probability of deferral
@@ -501,7 +501,8 @@ process_all_data <- function(ids) {
     mutate(type=map_chr(type, function(x) when(x, . == "actual" ~ "", . == "CI_inf" ~ "low", . == "CI_sup" ~ "high"))) %>%
     pivot_wider(names_from=c("variable", "type"), values_from=value, names_glue="{variable} {type}")
   names(df) <- str_trim(names(df))
-  df <- df %>% select("Id", "E6", "E6 low", "E6 high", "E12", "E12 low", "E12 high", "F1", "F1 low", "F1 high", "threshold6", "threshold12")
+  #df <- df %>% select("Id", "E6", "E6 low", "E6 high", "E12", "E12 low", "E12 high", "F1", "F1 low", "F1 high", "threshold6", "threshold12")
+  df <- df %>% select("Id", "F1", "F1 low", "F1 high", "threshold6", "threshold12", "E6", "E6 low", "E6 high", "E12", "E12 low", "E12 high")
   return(df)
 }
 
