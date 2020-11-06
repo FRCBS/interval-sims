@@ -10,11 +10,11 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 source("economic_effect_functions.R")
-save_figs = FALSE
+save_figs = TRUE
 fig_path="~/FRCBS/results-for-eba-paper/pdf"
 ```
 
-```{r}
+```{r, include=FALSE}
 
 
 descript <- tibble(Variable = c("donor", "Hb", "days_to_previous_fb", "age", "previous_Hb_def", 
@@ -55,7 +55,7 @@ descript <- tibble(Variable = c("donor", "Hb", "days_to_previous_fb", "age", "pr
 Effect sizes of variables from eProgesa and Biobank using dynamic linear mixed model. In addition, variables
 importance from random forest algorithm.
 
-```{r}
+```{r, include=FALSE}
 
 
 get_dlmm_df <- function(male_posterior, female_posterior, variables, combined_variables) {
@@ -206,7 +206,7 @@ create_forest_importance_plot <- function(male_posterior, female_posterior, vari
 }
 ```
 
-```{r}
+```{r, include=FALSE}
 finngenn_male_raw <- get_raw_result_list("finngen-male-dlmm")
 finngenn_female_raw <- get_raw_result_list("finngen-female-dlmm")
 male_posterior <- finngenn_male_raw$samples
@@ -228,7 +228,7 @@ create_forest_importance_plot(male_posterior, female_posterior, variables, filen
 
 ## Alternative effect sizes and importances of variables
 
-```{r}
+```{r, include=FALSE}
 alternative_create_forest_importance_plot <- function(male_posterior, female_posterior, variables,
                                            filename=NULL,
                                            width = 180,  # width of the combined figure in millimetres
@@ -271,13 +271,13 @@ alternative_create_forest_importance_plot <- function(male_posterior, female_pos
                                size=0.25,  
                                inherit.aes = FALSE) +
     labs(title=NULL, x=NULL, y=NULL, colour="Sex") +
-    scale_colour_discrete(drop=FALSE, breaks = c("male", "female", "both")) + 
+    scale_colour_discrete(drop=FALSE, breaks = c("male", "female", "both"), labels=c("Male", "Female", "Both")) + 
     scale_y_discrete() + # !!!!! This is important. Solves the problem with position_dodge2 and the order of rect and pointrange geoms !!!!!!
                          # Otherwise following error results: Error: Discrete value supplied to continuous scale
     facet_wrap("method", scales="free_x") +
     theme_classic(base_size = base_size) + 
-    theme(legend.position = "bottom", legend.direction = "horizontal", strip.background = element_rect(fill = NULL, color = "white", size = 1))
-  
+    theme(legend.position = "bottom", legend.direction = "horizontal", strip.background = element_rect(fill = NULL, color = "white", size = 1))#,
+          #plot.background = element_rect(fill = "lightblue"))
             
 
   return(list(plot=plot, final=final))
@@ -295,7 +295,7 @@ g
 
 ## Performance forest plot
 
-```{r}
+```{r, include=FALSE}
 
 get_threshold_df <- function() {
   t6 <- tibble(
@@ -318,14 +318,26 @@ get_threshold_df <- function() {
   return(t)
 }
 
+get_name_of_data <- function(s) {
+  s <- str_split_fixed(s, "-", 3)[,1]
+  s <- map(s, function(x) when(x, 
+                               x == "progesa" ~ "eProgesa",
+                               x == "finngen" ~ "Biobank",
+                               x == "findonor" ~ "FinDonor",
+                               ~ "koe"))
+  return(s)
+} 
+
 # Show AUROC, AUPR, F1, E6, and E12 as forest plot
 create_performance_forest_plot <- function() {
   df <- read_csv("~/FRCBS/results-for-eba-paper/raw_data.csv")
+  new_names <- c(`Economic effect of 6 month deferral` = "E6", `Economic effect of 12 month deferral` = "E12")
   df <- df %>%
     mutate(Id=factor(Id, levels=rev(ids)),
            type=factor(type, levels=c("AUROC", "AUPR", "F1", "E6", "E12")),
            sex=factor(str_split_fixed(Id, "-", 3)[,2], levels=c("female", "both", "male")),
-           model=factor(str_split_fixed(Id, "-", 3)[,3]))
+           model=factor(str_split_fixed(Id, "-", 3)[,3])) %>%
+    mutate(type = fct_recode(type, !!!new_names))
   
   thresholds <- get_threshold_df()
   df <- bind_rows(df, thresholds)
@@ -335,8 +347,13 @@ create_performance_forest_plot <- function() {
   xrange <- as.numeric(df %>% filter(type %in% c("E6", "E12")) %>% summarise(low=min(low), high=max(high))) # range of x-axis for E6 and E12
   xrange <- rep(xrange, 2)
   mytype <- factor(rep(c("E6", "E12"), each=2), levels=c("AUROC", "AUPR", "F1", "E6", "E12"))
-  dummy <- tibble(Id="progesa-female-lmm", value=xrange, low=xrange, high=xrange, type=mytype)  # Dummy table to use the same x-axis limits for E6 and E12
-  #print(dummy)
+  dummy <- tibble(Id="progesa-female-lmm", value=xrange, low=xrange, high=xrange, type=mytype) # Dummy table to use the same x-axis limits for E6 and E12
+
+
+  dummy <- dummy %>%
+    mutate(type = fct_recode(type, !!!new_names))
+
+  print(df)
   
   #key_size <- grid::convertX(theme_get()$legend.key.size, "mm", valueOnly=TRUE)
   #print(key_size)
@@ -345,18 +362,27 @@ create_performance_forest_plot <- function() {
   #key_size <- unit(1.2, "lines")
   #grid::convertX(grid::unit(1.2, "lines"), "mm")
   g <- df %>% ggplot(aes(y=Id, x=value, xmin=low, xmax=high)) + 
-    ggstance::geom_pointrangeh(aes(colour=sex, shape=model)) + 
+    ggstance::geom_pointrangeh(aes(colour=sex, shape=model, fill=model)) + 
     #geom_pointrange(aes(colour=sex, fill=sex, shape=model), key_glyph = draw_key_rect) + 
-    labs(x="Value", y="Data and method", colour="Sex", shape="Model") + 
-    #scale_colour_manual(breaks = c("male", "female", "both"), values=c("yellow", "brown", "black"), aesthetics = c("color", "fill", "shape")) +
-    scale_colour_discrete(breaks = c("male", "female", "both")) +
-    scale_shape_manual(breaks=c("lmm", "dlmm", "dt", "rf"), values=c("square", "circle", "triangle", "diamond", "cross", "asterisk")) +
+    labs(x="Value", y="Data and method", colour="Sex", shape="Model", fill="Deferral length") + 
+    scale_y_discrete(labels=get_name_of_data) +
+    scale_colour_discrete(breaks = c("male", "female", "both"), labels=c("Male", "Female", "Both")) +
+    scale_fill_manual(breaks=c("t6", "t12"), labels=c("Six months", "Twelve months"), values=1:6) + #breaks = new_names) +
+    scale_shape_manual(breaks=c("lmm", "dlmm", "dt", "rf"), 
+                       labels=c("Linear mixed model", "Dynamic linear mixed model", "Decision tree", "Random forest"),
+                       values=c("square", "circle", "triangle", "diamond", "cross", "asterisk")) +
+    # scale_fill_manual(breaks=c("lmm", "dlmm", "dt", "rf"), 
+    #                    labels=c("Linear mixed model", "Dynamic linear mixed model", "Decision tree", "Random forest"),
+    #                    values=c("square", "circle", "triangle", "diamond", "cross", "asterisk")) +
     #scale_colour_manual(values = c("female" = 1, "male" = 2, "both" = 3)) +
-    guides(colour = guide_legend(override.aes = list(shape = 15, linetype=0, size=key_size))) +
+    guides(colour = guide_legend(override.aes = list(shape = 15, linetype=0, size=key_size)),
+           fill = guide_legend(override.aes = list(shape = c("cross", "asterisk"), linetype=0))) +
     #guides(colour = guide_legend(override.aes = list(shape = 15, linetype=0))) +
     #theme(legend.key.size = theme_get()$legend.key.size) +
     geom_blank(data=dummy) +
-    facet_wrap("type", scales="free_x")
+    facet_wrap("type", scales="free_x") +
+    #theme(legend.position = "right", legend.direction = "vertical") 
+    theme(legend.position = "bottom", legend.direction = "vertical")
   #ggsave(filename="~/FRCBS/results-for-eba-paper/forest_plot.pdf", plot=g, dpi=600, units="mm", width=180)
   return(list(g=g, df=df))
 }
@@ -374,7 +400,7 @@ g
 
 ## Calibration plots
 
-```{r calibration plots}
+```{r calibration plots, include=FALSE}
 calibration_plot <- function(df, use_my_method=FALSE) {
   if (use_my_method) {
     df$cat <- cut(df$Deferred, seq(0.0, 1.0, length.out = 11))
@@ -422,7 +448,7 @@ g
 
 ## Classification scatter plot for male Finngen DLMM
 
-```{r}
+```{r, include=FALSE}
 
 generate_my_breaks <- function(step) {
   # Break between limits at every position that is multiple of 'step' 
@@ -439,8 +465,14 @@ generate_my_breaks <- function(step) {
 create_classification_scatter_plot <- function(df, hb_threshold, probability_of_deferral_threshold) {
   xymin <- min(min(df$predicted), min(df$observed))
   xymax <- max(max(df$predicted), max(df$observed))
-  df <- df %>% 
-    mutate(new_predicted_label= ifelse(scores >= probability_of_deferral_threshold, 1, 0)) %>%
+  if (is.null(probability_of_deferral_threshold)) { # predict deferral based on Hb
+    df <- df %>% 
+      mutate(new_predicted_label= ifelse(predicted < hb_threshold, 1, 0))
+  } else { # predict deferral based on probability of deferral
+    df <- df %>% 
+      mutate(new_predicted_label= ifelse(scores >= probability_of_deferral_threshold, 1, 0))
+  }
+  df <- df %>%
     mutate(confusion_class = factor(ifelse(deferral == 1, 
                                     ifelse(new_predicted_label == 1, "True positive", "False negative"),
                                     ifelse(new_predicted_label == 1, "False positive", "True negative")),
@@ -450,34 +482,40 @@ create_classification_scatter_plot <- function(df, hb_threshold, probability_of_
     #xlim(xymin,xymax) + ylim(xymin,xymax) +
     scale_x_continuous(breaks = generate_my_breaks(20), limits=c(xymin,xymax)) +
     scale_y_continuous(breaks = generate_my_breaks(20), limits=c(xymin,xymax)) +
+    scale_colour_discrete(drop=FALSE) +
     geom_abline(intercept = 0, slope = 1) +
     labs(x = "Observed", y = "Predicted", colour = "Deferral status") +
     #scale_colour_discrete(labels=c("Accepted", "Deferred")) +
     geom_smooth(mapping=aes(x = observed, y=predicted), colour="black", show.legend = FALSE) +
     geom_vline(xintercept = hb_threshold, linetype = "dashed") +
     geom_hline(yintercept = hb_threshold, linetype = "dashed") +
-    theme(legend.position = "bottom") +
-    ggtitle("Observed vs predicted Hb-values")
+    theme(legend.position = "bottom")
+    #ggtitle("Observed vs predicted Hb-values")
   return(scatter_plot)
 }
 ```
 
-```{r}
+```{r, include=FALSE}
 finngenn_male_raw <- get_raw_result_list("finngen-male-dlmm")
 
 ```
 
 
 ```{r}
-g <- create_classification_scatter_plot(finngenn_male_raw$comp_df, 135, 0.1)
-if (save_figs)
-  ggsave(filename="classification-scatter-plot-finngen-male-dlmm.pdf", title="Classifiction scatter plot finngen-male-dlmm", path=fig_path, 
-         plot=g, dpi=600, units="mm", width=180)
-g
+g1 <- create_classification_scatter_plot(finngenn_male_raw$comp_df, 135, NULL)
+g2 <- create_classification_scatter_plot(finngenn_male_raw$comp_df, 135, 0.1)
+if (save_figs) {
+  ggsave(filename="classification-scatter-plot-hb-finngen-male-dlmm.pdf", title="Classifiction scatter plot finngen-male-dlmm", path=fig_path, 
+         plot=g1, dpi=600, units="mm", width=180)
+  ggsave(filename="classification-scatter-plot-probability-finngen-male-dlmm.pdf", title="Classifiction scatter plot finngen-male-dlmm", path=fig_path, 
+         plot=g2, dpi=600, units="mm", width=180)
+}
+g1
+g2
 ```
 
 
-```{r, eval=FALSE}
+```{r, eval=FALSE, include=FALSE}
 jarkko_test <- function(male_posterior, female_posterior, variables,
                                            filename=NULL,
                                            width = 180,  # width of the combined figure in millimetres
