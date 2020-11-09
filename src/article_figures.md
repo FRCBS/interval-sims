@@ -61,12 +61,23 @@ Performance forest plot
     ##   low = col_double(),
     ##   high = col_double()
     ## )
+    ## Parsed with column specification:
+    ## cols(
+    ##   Id = col_character(),
+    ##   type = col_character(),
+    ##   value = col_double(),
+    ##   low = col_double(),
+    ##   high = col_double()
+    ## )
 
-    ## Warning in min(low): no non-missing arguments to min; returning Inf
-
-    ## Warning in max(high): no non-missing arguments to max; returning -Inf
-
-    ## # A tibble: 70 x 7
+    ## # A tibble: 4 x 5
+    ##   Id                  value    low   high type                              
+    ##   <chr>               <dbl>  <dbl>  <dbl> <fct>                             
+    ## 1 progesa-female-lmm -1.23  -1.23  -1.23  Economic effect: 6 month deferral 
+    ## 2 progesa-female-lmm  0.335  0.335  0.335 Economic effect: 6 month deferral 
+    ## 3 progesa-female-lmm -1.23  -1.23  -1.23  Economic effect: 12 month deferral
+    ## 4 progesa-female-lmm  0.335  0.335  0.335 Economic effect: 12 month deferral
+    ## # A tibble: 84 x 7
     ##    Id                   type  value   low  high sex    model
     ##    <fct>                <fct> <dbl> <dbl> <dbl> <fct>  <fct>
     ##  1 progesa-female-lmm   AUROC 0.804  0.79  0.81 female lmm  
@@ -79,7 +90,7 @@ Performance forest plot
     ##  8 findonor-male-dlmm   AUROC 0.764  0.65  0.88 male   dlmm 
     ##  9 progesa-both-dt      AUROC 0.78   0.77  0.79 both   dt   
     ## 10 progesa-both-rf      AUROC 0.86   0.85  0.86 both   rf   
-    ## # … with 60 more rows
+    ## # … with 74 more rows
 
     g <- res$g
     df <- res$df
@@ -132,3 +143,17 @@ Classification scatter plot for male Finngen DLMM
     ## `geom_smooth()` using method = 'gam' and formula 'y ~ s(x, bs = "cs")'
 
 ![](article_figures_files/figure-markdown_strict/unnamed-chunk-11-2.png)
+
+Testing the effect of base\_size parameter.
+
+    g1 + theme_gray(base_size=20)
+
+    ## `geom_smooth()` using method = 'gam' and formula 'y ~ s(x, bs = "cs")'
+
+![](article_figures_files/figure-markdown_strict/unnamed-chunk-12-1.png)
+
+    g2 + theme_gray(base_size=20)
+
+    ## `geom_smooth()` using method = 'gam' and formula 'y ~ s(x, bs = "cs")'
+
+![](article_figures_files/figure-markdown_strict/unnamed-chunk-12-2.png)

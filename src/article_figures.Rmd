@@ -10,7 +10,7 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 source("economic_effect_functions.R")
-save_figs = TRUE
+save_figs = FALSE
 fig_path="~/FRCBS/results-for-eba-paper/pdf"
 ```
 
@@ -297,15 +297,18 @@ g
 
 ```{r, include=FALSE}
 
+all_ids <- c(ids, dummy2_ids)
+
 get_threshold_df <- function() {
+  
   t6 <- tibble(
-      Id = factor(ids),
+      Id = factor(all_ids),
       type = factor("Threshold"),
-      value = c(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.4, 0.6))
+      value = c(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.4, 0.6,   0.2, 0.3))
   t12 <- tibble(
-      Id = factor(ids),
+      Id = factor(all_ids),
       type = factor("Threshold"),
-      value = c(0.2, 0.2, 0.1, 0.1, 0.1, 0.2, 0.3, 0.3, 0.8, 0.8)
+      value = c(0.2, 0.2, 0.1, 0.1, 0.1, 0.2, 0.3, 0.3, 0.8, 0.8,   0.4, 0.5)
   )
   t <- bind_rows(t6, t12)
   t <- t %>%
@@ -313,7 +316,7 @@ get_threshold_df <- function() {
            high=value,
            sex=factor(str_split_fixed(Id, "-", 3)[,2], levels=c("female", "both", "male")),
            #model=factor(str_split_fixed(Id, "-", 3)[,3])
-           model=rep(c("t6", "t12"), each=length(ids))
+           model=rep(c("t6", "t12"), each=length(all_ids))
            )
   return(t)
 }
@@ -330,10 +333,12 @@ get_name_of_data <- function(s) {
 
 # Show AUROC, AUPR, F1, E6, and E12 as forest plot
 create_performance_forest_plot <- function() {
-  df <- read_csv("~/FRCBS/results-for-eba-paper/raw_data.csv")
-  new_names <- c(`Economic effect of 6 month deferral` = "E6", `Economic effect of 12 month deferral` = "E12")
+  df1 <- read_csv("~/FRCBS/results-for-eba-paper/raw_data.csv")
+  df2 <- read_csv("~/FRCBS/results-for-eba-paper/raw_data_dummy.csv")
+  df <- bind_rows(df1, df2)
+  new_names <- c(`Economic effect: 6 month deferral` = "E6", `Economic effect: 12 month deferral` = "E12")
   df <- df %>%
-    mutate(Id=factor(Id, levels=rev(ids)),
+    mutate(Id=factor(Id, levels=rev(all_ids)),
            type=factor(type, levels=c("AUROC", "AUPR", "F1", "E6", "E12")),
            sex=factor(str_split_fixed(Id, "-", 3)[,2], levels=c("female", "both", "male")),
            model=factor(str_split_fixed(Id, "-", 3)[,3])) %>%
@@ -342,9 +347,11 @@ create_performance_forest_plot <- function() {
   thresholds <- get_threshold_df()
   df <- bind_rows(df, thresholds)
   df <- df %>% 
-    mutate(model = factor(model, levels=c("lmm", "dlmm", "dt", "rf", "t6", "t12")))
+    mutate(model = factor(model, levels=c("lmm", "dlmm", "dt", "rf", "dummy", "t6", "t12")))
+  write_csv(df, path = "~/FRCBS/results-for-eba-paper/raw_data_all.csv")
+  
   # Below we use a dummy table and geom_blank to have the same xlimits for E6 and E12 panels
-  xrange <- as.numeric(df %>% filter(type %in% c("E6", "E12")) %>% summarise(low=min(low), high=max(high))) # range of x-axis for E6 and E12
+  xrange <- as.numeric(df %>% filter(type %in% names(new_names)) %>% summarise(low=min(low), high=max(high))) # range of x-axis for E6 and E12
   xrange <- rep(xrange, 2)
   mytype <- factor(rep(c("E6", "E12"), each=2), levels=c("AUROC", "AUPR", "F1", "E6", "E12"))
   dummy <- tibble(Id="progesa-female-lmm", value=xrange, low=xrange, high=xrange, type=mytype) # Dummy table to use the same x-axis limits for E6 and E12
@@ -352,7 +359,7 @@ create_performance_forest_plot <- function() {
 
   dummy <- dummy %>%
     mutate(type = fct_recode(type, !!!new_names))
-
+  print(dummy)
   print(df)
   
   #key_size <- grid::convertX(theme_get()$legend.key.size, "mm", valueOnly=TRUE)
@@ -367,10 +374,10 @@ create_performance_forest_plot <- function() {
     labs(x="Value", y="Data and method", colour="Sex", shape="Model", fill="Deferral length") + 
     scale_y_discrete(labels=get_name_of_data) +
     scale_colour_discrete(breaks = c("male", "female", "both"), labels=c("Male", "Female", "Both")) +
-    scale_fill_manual(breaks=c("t6", "t12"), labels=c("Six months", "Twelve months"), values=1:6) + #breaks = new_names) +
-    scale_shape_manual(breaks=c("lmm", "dlmm", "dt", "rf"), 
-                       labels=c("Linear mixed model", "Dynamic linear mixed model", "Decision tree", "Random forest"),
-                       values=c("square", "circle", "triangle", "diamond", "cross", "asterisk")) +
+    scale_fill_manual(breaks=c("t6", "t12"), labels=c("Six months", "Twelve months"), values=1:7) + #breaks = new_names) +
+    scale_shape_manual(breaks=c("lmm", "dlmm", "dt", "rf", "dummy"),
+                       labels=c("Linear mixed model", "Dynamic linear mixed model", "Decision tree", "Random forest", "Dummy"),
+                       values=c("square", "circle", "triangle", "diamond", "plus", "cross", "asterisk")) +
     # scale_fill_manual(breaks=c("lmm", "dlmm", "dt", "rf"), 
     #                    labels=c("Linear mixed model", "Dynamic linear mixed model", "Decision tree", "Random forest"),
     #                    values=c("square", "circle", "triangle", "diamond", "cross", "asterisk")) +
@@ -512,6 +519,13 @@ if (save_figs) {
 }
 g1
 g2
+```
+
+Testing the effect of base_size parameter.
+
+```{r}
+g1 + theme_gray(base_size=20)
+g2 + theme_gray(base_size=20)
 ```
 
 
