@@ -9,7 +9,7 @@ library(boot)
 ids <- c("progesa-male-lmm", "progesa-female-lmm", "progesa-male-dlmm", "progesa-female-dlmm", "finngen-male-dlmm", "finngen-female-dlmm", 
          "findonor-male-dlmm", "findonor-female-dlmm", "progesa-both-dt", "progesa-both-rf")
 
-dummy2_ids <- c("progesa-female-dummy", "progesa-male-dummy")
+dummy2_ids <- c("progesa-male-dummy", "progesa-female-dummy")
 dummy_ids <- c("finngen-male-stratified", "finngen-male-most-frequent", "finngen-male-prior", "finngen-male-uniform", "finngen-male-deferred")
 
 # These are from Progesa data
@@ -404,7 +404,7 @@ test_get_cost <- function(name, threshold=0.5) {
 
 get_f1 <- function(df, threshold = 0.5) {
   pred.class <- factor( ifelse(df$Deferred >= threshold, "Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
-  cm <- confusionMatrix(reference = df$obs, data = pred.class, positive = "Deferred", mode = "prec_recall")
+  cm <- caret::confusionMatrix(reference = df$obs, data = pred.class, positive = "Deferred", mode = "prec_recall")
   f1 <- cm$byClass["F1"]
   return(f1)
 }
@@ -467,8 +467,8 @@ compute_CI <-function(fit_boot){
 }
 
 get_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8) {
-  nb_boot <- 100
-  #nb_boot <- nrow(df)
+  #nb_boot <- 100
+  nb_boot <- nrow(df)
   fit_boot <- boot(df, f1_threshold=f1_threshold, threshold6=threshold6, threshold12=threshold12, p=parameters, 
                    statistic = boot_cost, R = nb_boot, parallel="multicore", ncpus=4)
   ci <- compute_CI(fit_boot)
@@ -478,7 +478,7 @@ get_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8) {
 
 process_data <- function(df, id) {
   #print("Here")
-  if (id %in% c("progesa-female-dummy", "progesa-male-dummy")) {
+  if (FALSE && id %in% c("progesa-female-dummy", "progesa-male-dummy")) {
     thresholds <-  seq(-160, -110, by=2)   # thresholds for inverse of hemoglobin
     f1_threshold <- ifelse(id=="progesa-female-dummy", -125, -135)
   } else {

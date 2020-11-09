@@ -2,13 +2,15 @@
 title: "Dummy classifier"
 author: "Jarkko Toivonen"
 date: "11/4/2020"
-output: html_document
+output: md_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
+library(tidyverse)
 source("economic_effect_functions.R")
+source('../../Hb_predictor_container/src/validate_stan_fit.R', chdir=T)
 ```
 
 ## Dummy model for females and males on Progesa data
@@ -21,17 +23,30 @@ Use the preprocessed validate dataset from random forest runs. Dummy predictor u
 load("~/FRCBS/interval-sims/rf-train-and-validate-datas.rdata", verbose=TRUE)
 ```
 
+We use [Logistic function](https://en.wikipedia.org/wiki/Logistic_function) to map previous_Hb values to
+the probability range [0, 1].
 
 ```{r cars}
 
-logistic <- function(x) 1 / (1 + exp(-x))
+logistic <- function(x, k=1, x0=0) 1 / (1 + exp(-k*(x-x0)))
+
+score <- function(previous_Hb, Hb_threshold ) {
+  logistic(previous_Hb, k=-0.1, x0=Hb_threshold)
+}
+
+make_threshold_conversion_data_frame <- function(Hb_threshold, k) {
+  hb <- seq(110, 160, by=2)
+  df <- tibble(Hb=hb, 
+               Probability = logistic(hb, k=k, x0=Hb_threshold))
+  return(df)
+}
 
 dummy_predictor <- function(df, Hb_threshold=NULL) {
-  if (is.null(Hb_threshold)) {
+  if (is.null(Hb_threshold)) {    # use -previous_Hb as score
     result <- tibble(Deferred = -df$previous_Hb,
                      obs = df$Hb_deferral)
-  } else {
-    result <- tibble(Deferred = logistic(-(df$previous_Hb - Hb_threshold)), 
+  } else {                        # use logistic function of previous_Hb as score
+    result <- tibble(Deferred = score(df$previous_Hb, Hb_threshold), 
                      obs = df$Hb_deferral)
     
   }
@@ -64,6 +79,19 @@ dummy_predictor <- function(df, Hb_threshold=NULL) {
 
 ```
 
+```{r}
+df1 <- make_threshold_conversion_data_frame(125, -1) 
+df2 <- make_threshold_conversion_data_frame(125, -0.1)
+df <- bind_rows(`k=-1`=df1, `k=-0.1`= df2, .id="k")
+df %>% ggplot(aes(x=Hb, y=Probability, color=k)) + geom_point() + scale_y_continuous(breaks=seq(0, 1, by=0.1)) + labs(colour="Logistic function parameter") + ggtitle("Female")
+```
+
+```{r}
+df1 <- make_threshold_conversion_data_frame(135, -1) 
+df2 <- make_threshold_conversion_data_frame(135, -0.1)
+df <- bind_rows(`k=-1`=df1, `k=-0.1`= df2, .id="k")
+df %>% ggplot(aes(x=Hb, y=Probability, color=k)) + geom_point() + scale_y_continuous(breaks=seq(0, 1, by=0.1)) + labs(colour="Logistic function parameter") + ggtitle("Male")
+```
 
 ```{r}
 train_female <- train %>% filter(gender=="Women")
@@ -121,6 +149,33 @@ dummy_result <- process_all_data(dummy2_ids)
 ```
 
 ```{r}
+dummy_result
+```
+
+```{r}
+roc_female <- roc_wrapper(prediction_female)
+pr_female <- pr_wrapper(prediction_female)
+```
+
+```{r}
+roc_male <- roc_wrapper(prediction_male)
+pr_male <- pr_wrapper(prediction_male)
+```
+
+```{r}
+v <- c(roc_female$roc$ci[c(2,1,3)], pr_female$ci[c(1,2,3)], 
+       roc_male$roc$ci[c(2,1,3)], pr_male$ci[c(1,2,3)])
+aucs <- as_tibble(matrix(v, ncol=6, byrow=TRUE))
+colnames(aucs) <- c("AUROC", "AUROC low", "AUROC high", "AUPR value", "AUPR low", "AUPR high")
+aucs <- aucs %>% 
+  mutate(Id=dummy2_ids) %>%
+  select(Id, everything())
+
+aucs
+```
+
+```{r}
+dummy_result <- inner_join(aucs, dummy_result, by="Id")
 dummy_result
 ```
 
