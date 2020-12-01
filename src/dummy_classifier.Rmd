@@ -20,7 +20,8 @@ Use the preprocessed validate dataset from random forest runs. Dummy predictor u
 
 
 ```{r}
-load("~/FRCBS/interval-sims/rf-train-and-validate-datas.rdata", verbose=TRUE)
+load("~/FRCBS/interval-sims/rf-train-and-validate-datas.rdata", verbose=TRUE)  # returns train and validate dataframes
+load("~/FRCBS/interval-sims/rf-test-data.rdata", verbose=TRUE) # returns test dataframe
 ```
 
 We use [Logistic function](https://en.wikipedia.org/wiki/Logistic_function) to map previous_Hb values to
@@ -41,7 +42,7 @@ make_threshold_conversion_data_frame <- function(Hb_threshold, k) {
   return(df)
 }
 
-dummy_predictor <- function(df, Hb_threshold=NULL) {
+dummy_predictor <- function(df, Hb_threshold=NULL) { # fake logistic regression
   if (is.null(Hb_threshold)) {    # use -previous_Hb as score
     result <- tibble(Deferred = -df$previous_Hb,
                      obs = df$Hb_deferral)
@@ -51,6 +52,23 @@ dummy_predictor <- function(df, Hb_threshold=NULL) {
     
   }
   return(result)
+}
+
+dummy_predictor2 <- function(train, validate) {  # real logistic regression
+  glm.fit <- glm(Hb_deferral ~ previous_Hb,
+               data = train,
+               family = binomial)
+
+  print(glm.fit)
+  
+  glm.probs <- predict(glm.fit,
+                      newdata = validate,
+                      type = "response")
+  
+  result <- tibble(Deferred = glm.probs, 
+                   obs = validate$Hb_deferral)
+
+  return(result)  
 }
 
 # get_metrics <- function(df, previous_Hb_threshold) {
@@ -98,6 +116,8 @@ train_female <- train %>% filter(gender=="Women")
 train_male <- train %>% filter(gender=="Men")
 validate_female <- validate %>% filter(gender=="Women")
 validate_male <- validate %>% filter(gender=="Men")
+test_female <- test %>% filter(gender=="Women")
+test_male <- test %>% filter(gender=="Men")
 ```
 
 ```{r}
@@ -132,24 +152,35 @@ Final result on validate data
 ```
 
 ```{r}
-prediction_female <- dummy_predictor(validate_female, 125)  # or would mean Hb be better centering point than deferral threshold
-prediction_male <- dummy_predictor(validate_male, 135)
-
+use_logistic_regression=TRUE
+if (use_logistic_regression) {
+  prediction_female <- dummy_predictor2(train_female, test_female)  # or would mean Hb be better centering point than deferral threshold
+  prediction_male <- dummy_predictor2(train_male, test_male)
+} else {
+  prediction_female <- dummy_predictor(validate_female, 125)  # or would mean Hb be better centering point than deferral threshold
+  prediction_male <- dummy_predictor(validate_male, 135)
+}
 head(prediction_female)
 head(prediction_male)
 ```
 
 ```{r}
-save(prediction_female, file="~/FRCBS/interval-sims/progesa-validate-female-dummy.rdata")
-save(prediction_male, file="~/FRCBS/interval-sims/progesa-validate-male-dummy.rdata")
+save(prediction_female, file="~/FRCBS/interval-sims/progesa-validate-female-dummy2.rdata")
+save(prediction_male, file="~/FRCBS/interval-sims/progesa-validate-male-dummy2.rdata")
 ```
 
 ```{r}
-dummy_result <- process_all_data(dummy2_ids)
+dummy_result <- process_all_data(dummy2_ids, replicates=100)
 ```
 
 ```{r}
-dummy_result
+df <- dummy_result %>% 
+  pivot_wider(names_from=c("variable", "type"), values_from=value, names_glue="{variable} {type}")
+names(df) <- str_remove(names(df), " value$")
+df <- df %>%
+  select("Id", "F1", "F1 low", "F1 high", "threshold6", "threshold12", "E6", "E6 low", "E6 high", "E12", "E12 low", "E12 high")
+
+df
 ```
 
 ```{r}
@@ -161,21 +192,28 @@ pr_female <- pr_wrapper(prediction_female)
 roc_male <- roc_wrapper(prediction_male)
 pr_male <- pr_wrapper(prediction_male)
 ```
+```{r}
+roc_female
+pr_female
+roc_male
+pr_male
+```
+
 
 ```{r}
-v <- c(roc_female$roc$ci[c(2,1,3)], pr_female$ci[c(1,2,3)], 
-       roc_male$roc$ci[c(2,1,3)], pr_male$ci[c(1,2,3)])
-aucs <- as_tibble(matrix(v, ncol=6, byrow=TRUE))
-colnames(aucs) <- c("AUROC", "AUROC low", "AUROC high", "AUPR value", "AUPR low", "AUPR high")
-aucs <- aucs %>% 
-  mutate(Id=dummy2_ids) %>%
-  select(Id, everything())
-
-aucs
+# v <- c(roc_female$roc$ci[c(2,1,3)], pr_female$ci[c(1,2,3)], 
+#        roc_male$roc$ci[c(2,1,3)], pr_male$ci[c(1,2,3)])
+# aucs <- as_tibble(matrix(v, ncol=6, byrow=TRUE))
+# colnames(aucs) <- c("AUROC", "AUROC low", "AUROC high", "AUPR value", "AUPR low", "AUPR high")
+# aucs <- aucs %>% 
+#   mutate(Id=dummy2_ids) %>%
+#   select(Id, everything())
+# 
+# aucs
 ```
 
 ```{r}
-dummy_result <- inner_join(aucs, dummy_result, by="Id")
-dummy_result
+# dummy_result <- inner_join(aucs, dummy_result, by="Id")
+# dummy_result
 ```
 
