@@ -12,6 +12,8 @@ ids <- c("progesa-male-lmm", "progesa-female-lmm", "progesa-male-dlmm", "progesa
 dummy2_ids <- c("progesa-male-dummy", "progesa-female-dummy")
 dummy_ids <- c("finngen-male-stratified", "finngen-male-most-frequent", "finngen-male-prior", "finngen-male-uniform", "finngen-male-deferred")
 
+all_ids <- c(ids, dummy2_ids)
+
 # These are from Progesa data
 get_mikkos_cost_constants <- function() {
   return(list(
@@ -290,17 +292,19 @@ get_data_frame <- function(id) {
     df <- df %>% select(Deferred=fractions, obs=deferral) %>% mutate(obs=factor(ifelse(obs == 1, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))
     return(df)
   } else if (id == "progesa-both-rf") {
-    df <- load_single("~/FRCBS/interval-sims/rrfFit_roc_validate_probs.rdata")
+#    df <- load_single("~/FRCBS/interval-sims/rrfFit_roc_validate_probs.rdata")
+    df <- load_single("~/FRCBS/interval-sims/rrfFit_roc_test_probs.rdata")
     return(as_tibble(df))
   } else if (id == "progesa-both-dt") {
-    df <- as_tibble(load_single("~/FRCBS/interval-sims/rrfFit__dtree_roc_validate_probs.rdata"))
+    #df <- as_tibble(load_single("~/FRCBS/interval-sims/rrfFit__dtree_roc_validate_probs.rdata"))
+    df <- as_tibble(load_single("~/FRCBS/interval-sims/rrfFit__dtree_roc_test_probs.rdata"))
     df <- df %>% mutate(obs = factor(ifelse(obs == 2, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))
     return(df)
   } else if (id == "progesa-female-dummy") {
-    df <- load_single("~/FRCBS/interval-sims/progesa-validate-female-dummy.rdata")
+    df <- load_single("~/FRCBS/interval-sims/progesa-validate-female-dummy2.rdata")
     return(df)
   } else if (id == "progesa-male-dummy") {
-    df <- load_single("~/FRCBS/interval-sims/progesa-validate-male-dummy.rdata")
+    df <- load_single("~/FRCBS/interval-sims/progesa-validate-male-dummy2.rdata")
     return(df)
   } else if (id == "finngen-male-stratified") {
     df <- get_data_frame("finngen-male-dlmm")
@@ -402,18 +406,39 @@ test_get_cost <- function(name, threshold=0.5) {
   
 }
 
+# Computes the F1 score.
+# The input dataframe 'df' should have two columns:
+# 'obs': factor with levels "Accepted", "Deferred", where "Deferred" is the positive class.
+# 'Deferred': a numerical vector. Score (e.g. probability) of deferral.
 get_f1 <- function(df, threshold = 0.5) {
   pred.class <- factor( ifelse(df$Deferred >= threshold, "Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
   cm <- caret::confusionMatrix(reference = df$obs, data = pred.class, positive = "Deferred", mode = "prec_recall")
   f1 <- cm$byClass["F1"]
-  return(f1)
+  return(f1)   # Returns a single value
 }
 
+# Computes the area under the precision-recall curve
+# See get_f1 for parameter description.
+get_aupr <- function(df) {
+  aupr <- PRROC::pr.curve(scores.class0=df$Deferred, 
+                          weights.class0=df$obs=="Deferred")$auc.davis.goadrich
+  return(aupr)   # Returns a single value
+}
+
+# Computest the area under the receiver operating characteristic curve
+# See get_f1 for parameter description.
+get_auroc <- function(df) {
+  auroc <- pROC::auc(response = df$obs=="Deferred",
+                     predictor = df$Deferred)
+  return(auroc)   # Returns a single value
+}
+          
 #boot code from https://github.com/FRCBS/changes_in_donor_health/blob/master/src/hypothesis_regressions.Rmd
+# boot_data is the original input dataframe and boot_ind is a set of indices that defines the sample used on this replicate.
 boot_cost <- function(boot_data, boot_ind, f1_threshold, threshold6 = 0.6, threshold12 = 0.8, p){
   #sample
-  boot_data <- boot_data[boot_ind,]
-  get_rates <- function(threshold) {
+  boot_data <- boot_data[boot_ind,]       # a sample of the original data
+  get_rates <- function(bootdata, threshold) {  # Gets true and false positive rates (TPR and FPR)
     #classify predictions
     pred.class <- factor(ifelse(boot_data$Deferred >= threshold, "Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
     #get TPR and FPR
@@ -423,8 +448,8 @@ boot_cost <- function(boot_data, boot_ind, f1_threshold, threshold6 = 0.6, thres
     return(list(TPR=TPR,FPR=FPR))
   }
   #get cost
-  r6 <- get_rates(threshold6)
-  r12 <- get_rates(threshold12)
+  r6 <- get_rates(bootdata, threshold6)
+  r12 <- get_rates(bootdata, threshold12)
 
   costs <- get_cost(TPR6=r6$TPR, FPR6=r6$FPR, TPR12=r12$TPR, FPR12=r12$FPR, p)
   costs <- costs %>% select("E6", "E12")
@@ -432,18 +457,18 @@ boot_cost <- function(boot_data, boot_ind, f1_threshold, threshold6 = 0.6, thres
   
   # Compute the F1 score using threshold 0.5
   costs["F1"] <- get_f1(boot_data, threshold = f1_threshold)
-  return(costs)
+  costs["AUPR"] <- get_aupr(boot_data)
+  costs["AUROC"] <- get_auroc(boot_data)
+  
+  return(costs)   # returns a vector of statistics with element names E6, E12, F1, AUPR, and AUROC
 }
 
-compute_CI <-function(fit_boot){
-  CI_inf = rep(0, length(fit_boot$t0))
-  CI_sup = rep(0, length(fit_boot$t0))
-  for (i_regressor in 1:length(fit_boot$t0)){
-    #https://stackoverflow.com/questions/6791290/r-boot-package-not-enough-memory-to-get-confidence-intervals
-    #CI <- boot.ci(fit_boot, type = "bca", index=i_regressor)
-    #Bca_inf[i_regressor] <- CI$bca[4] # N.B type = 'normal' has 3 columns, while the other types 5 columns
-    #Bca_sup[i_regressor] <- CI$bca[5] #
-    #there is just too much data for bca to be used
+compute_cis <-function(fit_boot, conf = 0.95){
+  statistics <- fit_boot$t0  # for example E6, E12, F1, AUPR, and AUROC
+  n_statistics <- length(statistics)
+  CI_low = rep(0, n_statistics)  # Create arrays for end points of confidence intervals
+  CI_high = rep(0, n_statistics)
+  for (i_regressor in 1:n_statistics){  # Iterate over all statistics returned by 'boot_cost' function.
     
     # The F1 score can be undefined if both precision and recall are zeros
     error_code <- tryCatch(
@@ -452,57 +477,62 @@ compute_CI <-function(fit_boot){
         -1
       },
       {
-        CI <- boot.ci(fit_boot, conf = 0.95, type = "norm", index=i_regressor)
-        CI_inf[i_regressor] <- CI$normal[2]
-        CI_sup[i_regressor] <- CI$normal[3]
+        #https://stackoverflow.com/questions/6791290/r-boot-package-not-enough-memory-to-get-confidence-intervals
+        #CI <- boot.ci(fit_boot, type = "bca", index=i_regressor)
+        #Bca_low[i_regressor] <- CI$bca[4] # N.B type = 'normal' has 3 columns, while the other types 5 columns
+        #Bca_high[i_regressor] <- CI$bca[5] #
+        #there is just too much data for bca to be used
+        CI <- boot.ci(fit_boot, conf = conf, type = "norm", index=i_regressor)  # using normal approximation
+        CI_low[i_regressor] <- CI$normal[2]
+        CI_high[i_regressor] <- CI$normal[3]
       }
     )
     if (!is.null(error_code) && error_code == -1) {
-      CI_inf[i_regressor] <- NaN   # I have to do these outside the tryCatch block because the error handler cannot access these variables.
-      CI_sup[i_regressor] <- NaN
+      CI_low[i_regressor] <- NaN   # I have to do these outside the tryCatch block because the error handler cannot access these variables.
+      CI_high[i_regressor] <- NaN
     }
   }
   
-  return(tibble(variable = names(fit_boot$t0), CI_inf, CI_sup))
+  return(tibble(variable = names(fit_boot$t0), CI_low, CI_high))
 }
 
-get_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8) {
-  #nb_boot <- 100
-  nb_boot <- nrow(df)
-  fit_boot <- boot(df, f1_threshold=f1_threshold, threshold6=threshold6, threshold12=threshold12, p=parameters, 
-                   statistic = boot_cost, R = nb_boot, parallel="multicore", ncpus=4)
-  ci <- compute_CI(fit_boot)
-  ci <- ci %>% filter(variable %in% c("E6", "E12", "F1")) %>% pivot_longer(cols=c(CI_inf, CI_sup), names_to="type")
-  return(ci)
-}
-
-process_data <- function(df, id) {
-  #print("Here")
-  if (FALSE && id %in% c("progesa-female-dummy", "progesa-male-dummy")) {
-    thresholds <-  seq(-160, -110, by=2)   # thresholds for inverse of hemoglobin
-    f1_threshold <- ifelse(id=="progesa-female-dummy", -125, -135)
-  } else {
-    thresholds <- seq(0.1, .9, .1)  # thresholds for probability of deferral
-    f1_threshold <- 0.5
+get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8, conf=0.95, replicates=NULL) {
+  if (is.null(replicates)) {
+    replicates <- nrow(df)  # as many replications as there are data rows
   }
-  res <-  get_optimal_thresholds(df, thresholds = thresholds)
-  f1 <- get_f1(df, threshold=f1_threshold)
-  #print(f1)
-  ci <- get_intervals(df, f1_threshold=f1_threshold, threshold6 = res$threshold6, threshold12 = res$threshold12)
-  t <- tibble(variable=c("E6", "E12", "F1", "threshold6", "threshold12"), type="actual", value=c(res$E6, res$E12, f1, res$threshold6, res$threshold12))
-  return(bind_rows(ci, t))
+  fit_boot <- boot(df, f1_threshold=f1_threshold, threshold6=threshold6, threshold12=threshold12, p=parameters, 
+                   statistic = boot_cost, R = replicates, parallel="multicore", ncpus=4)
+  cis <- compute_cis(fit_boot, conf=0.95)
+  cis <- cis %>% filter(variable %in% c("E6", "E12", "F1", "AUPR", "AUROC")) %>% pivot_longer(cols=c(CI_low, CI_high), names_to="type")
+  return(cis)
 }
 
-process_all_data <- function(ids) {
+# id (string) is the name of the data.
+process_data <- function(df, id, conf=0.95, replicates=NULL) {
+  message(id)
+  #thresholds <- seq(0.1, 0.9, 0.1)  # thresholds for probability of deferral
+  thresholds <- seq(0.02, 0.98, 0.02)  # thresholds for probability of deferral
+  f1_threshold <- 0.5
+  
+  res <-  get_optimal_thresholds(df, thresholds = thresholds) # These thresholds are for cost effect computation (E6 and E12)
+  f1 <- get_f1(df, threshold=f1_threshold)
+  aupr <- get_aupr(df)
+  auroc <- get_auroc(df)
+  
+  values <- tibble(variable=c("E6", "E12", "F1", "AUPR", "AUROC", "threshold6", "threshold12"), 
+                   type="value", 
+                   value=c(res$E6, res$E12, f1, aupr, auroc, res$threshold6, res$threshold12))
+  cis <- get_confidence_intervals(df, f1_threshold=f1_threshold, threshold6 = res$threshold6, threshold12 = res$threshold12, conf=conf, replicates=replicates)
+  return(bind_rows(values, cis))
+}
+
+process_all_data <- function(ids, conf=0.95, replicates=NULL) {
   data_frames <- map(ids, get_data_frame)
-  results <- map2(data_frames, ids, process_data)
+  results <- map2(data_frames, ids, process_data, conf, replicates)  # Process each dataframe
   names(results) <- ids
   df <- bind_rows(results, .id="Id") %>%
-    mutate(type=map_chr(type, function(x) when(x, . == "actual" ~ "", . == "CI_inf" ~ "low", . == "CI_sup" ~ "high"))) %>%
-    pivot_wider(names_from=c("variable", "type"), values_from=value, names_glue="{variable} {type}")
-  names(df) <- str_trim(names(df))
-  #df <- df %>% select("Id", "E6", "E6 low", "E6 high", "E12", "E12 low", "E12 high", "F1", "F1 low", "F1 high", "threshold6", "threshold12")
-  df <- df %>% select("Id", "F1", "F1 low", "F1 high", "threshold6", "threshold12", "E6", "E6 low", "E6 high", "E12", "E12 low", "E12 high")
+    mutate(type=recode(type, "CI_low" = "low", "CI_high" = "high"))
+
   return(df)
 }
 
