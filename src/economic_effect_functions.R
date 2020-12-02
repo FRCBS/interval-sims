@@ -420,16 +420,16 @@ get_f1 <- function(df, threshold = 0.5) {
 # Computes the area under the precision-recall curve
 # See get_f1 for parameter description.
 get_aupr <- function(df) {
-  aupr <- PRROC::pr.curve(scores.class0=df$Deferred, 
-                          weights.class0=df$obs=="Deferred")$auc.davis.goadrich
+  aupr <- suppressMessages(PRROC::pr.curve(scores.class0=df$Deferred, 
+                          weights.class0=df$obs=="Deferred")$auc.davis.goadrich)
   return(aupr)   # Returns a single value
 }
 
 # Computest the area under the receiver operating characteristic curve
 # See get_f1 for parameter description.
 get_auroc <- function(df) {
-  auroc <- pROC::auc(response = df$obs=="Deferred",
-                     predictor = df$Deferred)
+  auroc <- suppressMessages(pROC::auc(response = df$obs=="Deferred",
+                     predictor = df$Deferred))
   return(auroc)   # Returns a single value
 }
           
@@ -463,7 +463,8 @@ boot_cost <- function(boot_data, boot_ind, f1_threshold, threshold6 = 0.6, thres
   return(costs)   # returns a vector of statistics with element names E6, E12, F1, AUPR, and AUROC
 }
 
-compute_cis <-function(fit_boot, conf = 0.95){
+# method is either "norm", "basic", "perc", or "bca"
+compute_cis <-function(fit_boot, conf = 0.95, method="norm"){
   statistics <- fit_boot$t0  # for example E6, E12, F1, AUPR, and AUROC
   n_statistics <- length(statistics)
   CI_low = rep(0, n_statistics)  # Create arrays for end points of confidence intervals
@@ -482,9 +483,15 @@ compute_cis <-function(fit_boot, conf = 0.95){
         #Bca_low[i_regressor] <- CI$bca[4] # N.B type = 'normal' has 3 columns, while the other types 5 columns
         #Bca_high[i_regressor] <- CI$bca[5] #
         #there is just too much data for bca to be used
-        CI <- boot.ci(fit_boot, conf = conf, type = "norm", index=i_regressor)  # using normal approximation
-        CI_low[i_regressor] <- CI$normal[2]
-        CI_high[i_regressor] <- CI$normal[3]
+        CI <- boot.ci(fit_boot, conf = conf, type = method, index=i_regressor)  # using normal approximation
+        var <- recode(method, "norm"="normal", "perc"="percent", "stud"="student")  # The name of the output field is stupidly sometimes not the same as the parameter name
+        if (method == "norm") {
+          CI_low[i_regressor] <- CI$normal[2]
+          CI_high[i_regressor] <- CI$normal[3]
+        } else {
+          CI_low[i_regressor] <- CI[[var]][4]
+          CI_high[i_regressor] <- CI[[var]][5]
+        }
       }
     )
     if (!is.null(error_code) && error_code == -1) {
@@ -496,19 +503,22 @@ compute_cis <-function(fit_boot, conf = 0.95){
   return(tibble(variable = names(fit_boot$t0), CI_low, CI_high))
 }
 
-get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8, conf=0.95, replicates=NULL) {
-  if (is.null(replicates)) {
-    replicates <- nrow(df)  # as many replications as there are data rows
+get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8, conf=0.95, method="norm", n.boot=2000) {
+  if (is.null(n.boot)) {
+    n.boot <- nrow(df)  # as many replications as there are data rows
   }
   fit_boot <- boot(df, f1_threshold=f1_threshold, threshold6=threshold6, threshold12=threshold12, p=parameters, 
-                   statistic = boot_cost, R = replicates, parallel="multicore", ncpus=4)
-  cis <- compute_cis(fit_boot, conf=0.95)
+                   statistic = boot_cost, R = n.boot, parallel="multicore", ncpus=4)
+  cis <- compute_cis(fit_boot, conf=0.95, method=method)
   cis <- cis %>% filter(variable %in% c("E6", "E12", "F1", "AUPR", "AUROC")) %>% pivot_longer(cols=c(CI_low, CI_high), names_to="type")
   return(cis)
 }
 
 # id (string) is the name of the data.
-process_data <- function(df, id, conf=0.95, replicates=NULL) {
+# conf is the wanted confidence level
+# method is either "norm", "basic", "perc", or "bca"
+# n.boot tells the number of bootstrap replications. If it is NULL, then as many replicates are used as there are rows in the data 'df'
+process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000) {
   message(id)
   #thresholds <- seq(0.1, 0.9, 0.1)  # thresholds for probability of deferral
   thresholds <- seq(0.02, 0.98, 0.02)  # thresholds for probability of deferral
@@ -522,13 +532,13 @@ process_data <- function(df, id, conf=0.95, replicates=NULL) {
   values <- tibble(variable=c("E6", "E12", "F1", "AUPR", "AUROC", "threshold6", "threshold12"), 
                    type="value", 
                    value=c(res$E6, res$E12, f1, aupr, auroc, res$threshold6, res$threshold12))
-  cis <- get_confidence_intervals(df, f1_threshold=f1_threshold, threshold6 = res$threshold6, threshold12 = res$threshold12, conf=conf, replicates=replicates)
+  cis <- get_confidence_intervals(df, f1_threshold=f1_threshold, threshold6 = res$threshold6, threshold12 = res$threshold12, conf=conf, method=method, n.boot=n.boot)
   return(bind_rows(values, cis))
 }
 
-process_all_data <- function(ids, conf=0.95, replicates=NULL) {
+process_all_data <- function(ids, conf=0.95, method="norm", n.boot=2000) {
   data_frames <- map(ids, get_data_frame)
-  results <- map2(data_frames, ids, process_data, conf, replicates)  # Process each dataframe
+  results <- map2(data_frames, ids, process_data, conf=conf, method=method, n.boot=n.boot)  # Process each dataframe
   names(results) <- ids
   df <- bind_rows(results, .id="Id") %>%
     mutate(type=recode(type, "CI_low" = "low", "CI_high" = "high"))
@@ -551,14 +561,14 @@ test_get_all_costs <- function() {
 
 
 
-roc_wrapper <- function(df) {
+roc_wrapper <- function(df, boot.n=2000) {
   df <- df %>% rename(scores = Deferred, labels=obs) %>% mutate(labels = ifelse(labels=="Accepted", 0, 1))
-  return(create_roc_new(df$labels, df$scores))
+  return(create_roc_new(df$labels, df$scores, boot.n=boot.n))
 }
 
-pr_wrapper <- function(df) {
+pr_wrapper <- function(df, method="norm", boot.n=2000) {
   df <- df %>% rename(scores = Deferred, labels=obs) %>% mutate(labels = ifelse(labels=="Accepted", 0, 1))
-  return(create_precision_recall_new(df$labels, df$scores))
+  return(create_precision_recall_new(df$labels, df$scores, method=method, boot.n=boot.n))
 }
 cost_func <- function(q, atot, Pm, Pd, F, Fn, rloss) {Pm * ((F*atot) / (F + Fn*(atot-1)) - 1 - q*rloss) - Pd*q}
 
