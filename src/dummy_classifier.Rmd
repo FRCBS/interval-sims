@@ -2,13 +2,16 @@
 title: "Dummy classifier"
 author: "Jarkko Toivonen"
 date: "11/4/2020"
-output: md_document
+output: 
+  html_document: default
+  md_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
+library(knitr)
 source("economic_effect_functions.R")
 source('../../Hb_predictor_container/src/validate_stan_fit.R', chdir=T)
 ```
@@ -54,11 +57,15 @@ dummy_predictor <- function(df, Hb_threshold=NULL) { # fake logistic regression
   return(result)
 }
 
-dummy_predictor2 <- function(train, validate) {  # real logistic regression
+logistic_regression <- function(train) {
   glm.fit <- glm(Hb_deferral ~ previous_Hb,
                data = train,
                family = binomial)
+  return(glm.fit)  
+}
 
+dummy_predictor2 <- function(train, validate) {  # real logistic regression
+  glm.fit <- logistic_regression(train)
   print(glm.fit)
   
   glm.probs <- predict(glm.fit,
@@ -68,32 +75,10 @@ dummy_predictor2 <- function(train, validate) {  # real logistic regression
   result <- tibble(Deferred = glm.probs, 
                    obs = validate$Hb_deferral)
 
-  return(result)  
+  return(list(result=result, fit=glm.fit))  
 }
 
-# get_metrics <- function(df, previous_Hb_threshold) {
-#   df <- df %>% mutate(predicted_Hb_deferral=factor(ifelse(previous_Hb < previous_Hb_threshold, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))
-#   
-#   cm <- confusionMatrix(reference = df$Hb_deferral, data = df$predicted_Hb_deferral, positive = "Deferred", mode = "everything")
-#   f1 <- cm$byClass["F1"]
-#          #Sensitivity  = TPR
-#   TPR <- cm$byClass['Sensitivity']
-#   FPR <- 1 - cm$byClass['Specificity']
-#   temp <- get_cost(TPR, FPR, TPR, FPR, p = parameters) # The parameters are from file economic_effect_functions.R
-#   E6  <- temp$E6
-#   E12 <- temp$E12
-#   return(tibble(previous_Hb_threshold=previous_Hb_threshold, f1=f1, E6=E6, E12=E12))
-# }
-# 
-# optimize_threshold <- function(df) {
-#   thresholds <- seq(120, 150, by=2)
-#   result <- map_dfr(thresholds, function(t) get_metrics(df, t))
-#   
-#   threshold <- result %>%
-#     slice_max(f1) %>%
-#     pull(previous_Hb_threshold)
-#   return(list(threshold=threshold, result=result))
-# }
+
 
 ```
 
@@ -120,57 +105,37 @@ test_female <- test %>% filter(gender=="Women")
 test_male <- test %>% filter(gender=="Men")
 ```
 
-```{r}
-# res_female <- optimize_threshold(train_female)
-# res_male <- optimize_threshold(train_male)
-```
 
-Optimized thresholds on previous Hb for females and males
-```{r}
-# female_previous_Hb_threshold <- res_female$threshold
-# male_previous_Hb_threshold <- res_male$threshold
-# female_previous_Hb_threshold
-# male_previous_Hb_threshold
-```
-
-```{r}
-# res_female$result
-# res_male$result
-```
-
-Final result on validate data
-```{r}
-
-# f1_female <- get_f1(validate_female, female_previous_Hb_threshold)
-# f1_female
-```
-
-```{r}
-
-# f1_male <- get_f1(validate_male, male_previous_Hb_threshold)
-# f1_male
-```
 
 ```{r}
 use_logistic_regression=TRUE
 if (use_logistic_regression) {
-  prediction_female <- dummy_predictor2(train_female, test_female)  # or would mean Hb be better centering point than deferral threshold
-  prediction_male <- dummy_predictor2(train_male, test_male)
+  res <- dummy_predictor2(train_female, test_female)
+  prediction_female <- res$result
+  fit_female <- res$fit
+  
+  res <- dummy_predictor2(train_male, test_male)
+  prediction_male <- res$result
+  fit_male <- res$fit
 } else {
   prediction_female <- dummy_predictor(validate_female, 125)  # or would mean Hb be better centering point than deferral threshold
   prediction_male <- dummy_predictor(validate_male, 135)
 }
 head(prediction_female)
 head(prediction_male)
+fit_male
+fit_female
 ```
 
 ```{r}
-save(prediction_female, file="~/FRCBS/interval-sims/progesa-validate-female-dummy2.rdata")
-save(prediction_male, file="~/FRCBS/interval-sims/progesa-validate-male-dummy2.rdata")
+if (FALSE) {
+  save(prediction_female, file="~/FRCBS/interval-sims/progesa-validate-female-dummy2.rdata")
+  save(prediction_male, file="~/FRCBS/interval-sims/progesa-validate-male-dummy2.rdata")
+}
 ```
 
 ```{r}
-dummy_result <- process_all_data(dummy2_ids, replicates=100)
+dummy_result <- suppressMessages(process_all_data(dummy2_ids, replicates=100))
 ```
 
 ```{r}
@@ -180,8 +145,30 @@ names(df) <- str_remove(names(df), " value$")
 df <- df %>%
   select("Id", "F1", "F1 low", "F1 high", "threshold6", "threshold12", "E6", "E6 low", "E6 high", "E12", "E12 low", "E12 high")
 
-df
+kable(df)
 ```
+
+```{r}
+data <- tibble(previous_Hb = seq(100, 200))
+data[["male"]] <- predict(fit_male, newdata=data, type="response")
+data[["female"]] <- predict(fit_female, newdata=data, type="response")
+data2 <- data %>% pivot_longer(cols=c(male, female), names_to="Sex", values_to="Probability")
+#data2
+
+mt <- df %>% filter(Id=="progesa-male-dummy") %>% select(threshold6, threshold12) %>% as.numeric()   # male thresholds
+ft <- df %>% filter(Id=="progesa-female-dummy") %>% select(threshold6, threshold12) %>% as.numeric() # female thresholds
+mhb <- approx(x = data$male,   y = data$previous_Hb, xout=mt)$y                                          # corresponding male hemoglobins
+fhb <- approx(x = data$female, y = data$previous_Hb, xout=ft)$y                                          # corresponding female hemoglobins
+threshold_data <- tibble(previous_Hb = c(mhb, fhb), Probability=c(mt, ft), text=c("t6", "t12", "t6", "t12"), Sex=c("male", "male", "female", "female"))
+kable(threshold_data)
+
+g <- data2 %>% ggplot(aes(x=previous_Hb, y=Probability, color=Sex)) + 
+  geom_line() +
+  geom_vline(data=threshold_data, mapping=aes(xintercept=previous_Hb, colour=Sex)) +
+  geom_text(data=threshold_data, mapping=aes(x=previous_Hb, label=text), y=0.1, show.legend=FALSE, nudge_x=2.5)
+g
+```
+
 
 ```{r}
 roc_female <- roc_wrapper(prediction_female)
@@ -194,26 +181,12 @@ pr_male <- pr_wrapper(prediction_male)
 ```
 ```{r}
 roc_female
-pr_female
+pr_female$pr_plot
 roc_male
-pr_male
+pr_male$pr_plot
 ```
 
 
-```{r}
-# v <- c(roc_female$roc$ci[c(2,1,3)], pr_female$ci[c(1,2,3)], 
-#        roc_male$roc$ci[c(2,1,3)], pr_male$ci[c(1,2,3)])
-# aucs <- as_tibble(matrix(v, ncol=6, byrow=TRUE))
-# colnames(aucs) <- c("AUROC", "AUROC low", "AUROC high", "AUPR value", "AUPR low", "AUPR high")
-# aucs <- aucs %>% 
-#   mutate(Id=dummy2_ids) %>%
-#   select(Id, everything())
-# 
-# aucs
-```
 
-```{r}
-# dummy_result <- inner_join(aucs, dummy_result, by="Id")
-# dummy_result
-```
+
 
