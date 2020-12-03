@@ -10,6 +10,8 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 source("economic_effect_functions.R")
+library(knitr)
+library(tidyverse)
 save_figs = TRUE
 fig_path="~/FRCBS/results-for-eba-paper/pdf"
 ```
@@ -261,7 +263,7 @@ alternative_create_forest_importance_plot <- function(male_posterior, female_pos
     mutate(method=factor(method, levels=c("Regression coefficient", "Importance"))) %>%
     select(-Importance, -Variable, stripe)
            
-  print(combined_variables)
+  #print(combined_variables)
   
   plot <- final %>% 
     ggplot() +     
@@ -305,27 +307,27 @@ g
 
 all_ids <- c(ids, dummy2_ids)
 
-get_threshold_df <- function() {
-  
-  t6 <- tibble(
-      Id = factor(all_ids),
-      type = factor("Threshold"),
-      value = c(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.4, 0.6,   0.2, 0.3))
-  t12 <- tibble(
-      Id = factor(all_ids),
-      type = factor("Threshold"),
-      value = c(0.2, 0.2, 0.1, 0.1, 0.1, 0.2, 0.3, 0.3, 0.8, 0.8,   0.4, 0.5)
-  )
-  t <- bind_rows(t6, t12)
-  t <- t %>%
-    mutate(low=value, 
-           high=value,
-           sex=factor(str_split_fixed(Id, "-", 3)[,2], levels=c("female", "both", "male")),
-           #model=factor(str_split_fixed(Id, "-", 3)[,3])
-           model=rep(c("t6", "t12"), each=length(all_ids))
-           )
-  return(t)
-}
+# get_threshold_df <- function() {
+#   
+#   t6 <- tibble(
+#       Id = factor(all_ids),
+#       type = factor("Threshold"),
+#       value = c(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.4, 0.6,   0.2, 0.3))
+#   t12 <- tibble(
+#       Id = factor(all_ids),
+#       type = factor("Threshold"),
+#       value = c(0.2, 0.2, 0.1, 0.1, 0.1, 0.2, 0.3, 0.3, 0.8, 0.8,   0.4, 0.5)
+#   )
+#   t <- bind_rows(t6, t12)
+#   t <- t %>%
+#     mutate(low=value, 
+#            high=value,
+#            sex=factor(str_split_fixed(Id, "-", 3)[,2], levels=c("female", "both", "male")),
+#            #model=factor(str_split_fixed(Id, "-", 3)[,3])
+#            model=rep(c("t6", "t12"), each=length(all_ids))
+#            )
+#   return(t)
+# }
 
 get_name_of_data <- function(s) {
   s <- str_split_fixed(s, "-", 3)[,1]  # Extract the name of the data set
@@ -390,8 +392,8 @@ create_performance_forest_plot <- function() {
 
   dummy <- dummy %>%
     mutate(variable = fct_recode(variable, !!!new_names))
-  print(dummy)
-  print(df)
+  #print(dummy)
+  #print(df)
   
   #key_size <- grid::convertX(theme_get()$legend.key.size, "mm", valueOnly=TRUE)
   #print(key_size)
@@ -570,87 +572,14 @@ if (save_figs) {
 Pretty print results as a table.
 
 ```{r}
-df <- read_csv("~/FRCBS/results-for-eba-paper/raw-data-2020-11-30.csv")
+df <- read_csv("~/FRCBS/results-for-eba-paper/raw-data-2020-12-01.csv")
 df <- df %>% 
   pivot_wider(names_from=c("variable", "type"), values_from=value, names_glue="{variable} {type}")
 names(df) <- str_remove(names(df), " value$")
-df %>%
+df2 <- df %>%
   select("Id", "F1", "F1 low", "F1 high", "threshold6", "threshold12", "E6", "E6 low", "E6 high", "E12", "E12 low", "E12 high")
+kable(df2, digits=2)
 ```
 
 
 
-```{r, eval=FALSE, include=FALSE}
-# jarkko_test <- function(male_posterior, female_posterior, variables,
-#                                            filename=NULL,
-#                                            width = 180,  # width of the combined figure in millimetres
-#                                           base_size = 11
-# ) {
-#   rrfFit_roc <- load_single("~/FRCBS/interval_prediction/results/rrfFit_roc.rdata")
-# 
-#   combined_variables <- tibble(Pretty=c(variables, "Life time donations", "Sex", "First Hb")) %>%
-#     mutate(stripe=factor(row_number()%%2),    # this is used to make the gray/white background
-#            Pretty=factor(Pretty, levels=Pretty))
-# 
-#   result <- get_dlmm_df(male_posterior, female_posterior, variables, combined_variables)
-#   varimp <- get_rf_df(rrfFit_roc, descript, combined_variables)
-# 
-#   result <- result %>%
-#     mutate(Pretty=fct_rev(Pretty))
-# 
-#   var_imp <- varimp %>%
-#     mutate(Pretty=fct_rev(Pretty),
-#            mean=Importance,
-#            low=ifelse(is.na(Importance), NA, 0),
-#            high=Importance)
-# 
-#   final <- bind_rows(`Regression coefficient`=result, Importance=var_imp, .id="method") %>%
-#     mutate(method=factor(method, levels=c("Regression coefficient", "Importance"))) %>%
-#     select(-Importance, -Variable, stripe)
-# 
-# #   final <- tibble(
-# #             method = c("Regression coefficient",
-# #                        "Regression coefficient","Importance"),
-# #             Pretty = factor(c("Days to previous full blood donation","Days to previous full blood donation",
-# #                        "Days to previous full blood donation")),
-# #             #gender = c("male", "female", "both"),
-# #               mean = c(0.0152091681221149,
-# #                        0.0445741103338152,0.0255604042298423),
-# #                low = c(0.00691102953212081, 0.0353192308283623, 0),
-# #               high = c(0.0240855557569598,
-# #                        0.0537929726515129,0.0255604042298423)
-# # )
-#   
-#   #combined_variables <- tibble(Pretty=factor("Days to previous full blood donation"), stripe=factor(1))
-#   
-#   print(final)         
-#   print(combined_variables)
-#   vars <- c("Days to previous full blood donation", "Age", "Previous donation deferred", "Year")
-#   plot <- final %>% #filter(Pretty %in% vars) %>%
-#     ggplot(aes(color=gender)) +
-#     geom_rect(data=combined_variables %>% filter(stripe==1),
-#               mapping=aes(#ymax = as.numeric(Pretty) + 0.5,
-#                           #ymin = as.numeric(Pretty) - 0.5
-#                           ymax = as.numeric(Pretty) + 0.5,
-#                           ymin = as.numeric(Pretty) - 0.5),
-#               fill = "blue", 
-#               #position="identity",
-#               xmin=-Inf, xmax=Inf, alpha = 0.1, inherit.aes = FALSE) +
-#     ggstance::geom_pointrangeh(#data=final, 
-#                                mapping=aes(y=Pretty, x=mean, xmin=low, xmax=high),
-#                                #position=position_dodge2(0.8)
-#                                position=position_dodge2(width=0.8, padding=0.1)
-#                                ) +
-#     scale_y_discrete() +
-#     facet_wrap("method", scales = "free_x") +
-#     #coord_flip() +
-#     theme_classic(base_size = base_size) 
-# 
-#   return(list(plot=plot, final=final))
-# }
-# 
-# res <- jarkko_test(male_posterior, female_posterior, variables, filename=filename)
-# final <- res$final
-# g <- res$plot
-# g
-```
