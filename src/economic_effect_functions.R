@@ -469,6 +469,7 @@ compute_cis <-function(fit_boot, conf = 0.95, method="norm"){
   n_statistics <- length(statistics)
   CI_low = rep(0, n_statistics)  # Create arrays for end points of confidence intervals
   CI_high = rep(0, n_statistics)
+  value = rep(0, n_statistics)   # the actual value of the statistic on full data
   for (i_regressor in 1:n_statistics){  # Iterate over all statistics returned by 'boot_cost' function.
     
     # The F1 score can be undefined if both precision and recall are zeros
@@ -485,6 +486,7 @@ compute_cis <-function(fit_boot, conf = 0.95, method="norm"){
         #there is just too much data for bca to be used
         CI <- boot.ci(fit_boot, conf = conf, type = method, index=i_regressor)  # using normal approximation
         var <- recode(method, "norm"="normal", "perc"="percent", "stud"="student")  # The name of the output field is stupidly sometimes not the same as the parameter name
+        value[i_regressor] <- CI$t0
         if (method == "norm") {
           CI_low[i_regressor] <- CI$normal[2]
           CI_high[i_regressor] <- CI$normal[3]
@@ -497,10 +499,11 @@ compute_cis <-function(fit_boot, conf = 0.95, method="norm"){
     if (!is.null(error_code) && error_code == -1) {
       CI_low[i_regressor] <- NaN   # I have to do these outside the tryCatch block because the error handler cannot access these variables.
       CI_high[i_regressor] <- NaN
+      value[i_regressor] <- NaN
     }
   }
   
-  return(tibble(variable = names(fit_boot$t0), CI_low, CI_high))
+  return(tibble(variable = names(fit_boot$t0), value, CI_low, CI_high))
 }
 
 get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8, conf=0.95, method="norm", n.boot=2000) {
@@ -510,7 +513,7 @@ get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold
   fit_boot <- boot(df, f1_threshold=f1_threshold, threshold6=threshold6, threshold12=threshold12, p=parameters, 
                    statistic = boot_cost, R = n.boot, parallel="multicore", ncpus=4)
   cis <- compute_cis(fit_boot, conf=0.95, method=method)
-  cis <- cis %>% filter(variable %in% c("E6", "E12", "F1", "AUPR", "AUROC")) %>% pivot_longer(cols=c(CI_low, CI_high), names_to="type")
+  cis <- cis %>% filter(variable %in% c("E6", "E12", "F1", "AUPR", "AUROC")) %>% pivot_longer(cols=c(value, CI_low, CI_high), names_to="type")
   return(cis)
 }
 
@@ -525,13 +528,15 @@ process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000) {
   f1_threshold <- 0.5
   
   res <-  get_optimal_thresholds(df, thresholds = thresholds) # These thresholds are for cost effect computation (E6 and E12)
-  f1 <- get_f1(df, threshold=f1_threshold)
-  aupr <- get_aupr(df)
-  auroc <- get_auroc(df)
+  #f1 <- get_f1(df, threshold=f1_threshold) # Let boot.ci compute these instead
+  #aupr <- get_aupr(df)
+  #auroc <- get_auroc(df)
   
-  values <- tibble(variable=c("E6", "E12", "F1", "AUPR", "AUROC", "threshold6", "threshold12"), 
+  values <- tibble(variable=c(#"E6", "E12", "F1", "AUPR", "AUROC", 
+                              "threshold6", "threshold12"), 
                    type="value", 
-                   value=c(res$E6, res$E12, f1, aupr, auroc, res$threshold6, res$threshold12))
+                   value=c(#res$E6, res$E12, f1, aupr, auroc, 
+                           res$threshold6, res$threshold12))
   cis <- get_confidence_intervals(df, f1_threshold=f1_threshold, threshold6 = res$threshold6, threshold12 = res$threshold12, conf=conf, method=method, n.boot=n.boot)
   return(bind_rows(values, cis))
 }
