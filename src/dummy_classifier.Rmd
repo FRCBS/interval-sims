@@ -21,7 +21,7 @@ source('../../Hb_predictor_container/src/validate_stan_fit.R', chdir=T)
 Use the preprocessed validate dataset from random forest runs. Dummy predictor uses -previous_Hb as score for deferral. 
 
 
-
+  
 ```{r}
 load("~/FRCBS/interval-sims/rf-train-and-validate-datas.rdata", verbose=TRUE)  # returns train and validate dataframes
 load("~/FRCBS/interval-sims/rf-test-data.rdata", verbose=TRUE) # returns test dataframe
