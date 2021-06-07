@@ -152,72 +152,89 @@ get_cost <- function(TPR6, FPR6, TPR12, FPR12, p = parameters) {
   Fn.=p$Fn
   rl.=p$rl
   
-  if (FALSE) {
-    get_cost2 <- function(TPR, FPR) {
+#  if (TRUE) {  # This version has less repetition
+    get_cost2 <- function(TPR, FPR, new_interval_length) {
+      male_interval_factor   <- new_interval_length / 2
+      female_interval_factor <- new_interval_length / 3
       q <- d. * TPR
-      a <- 1 * ((1 - FPR) * (1 - d.)) + 
-        3 * mr. * (FPR * (1 - d.)) + 2 * fr. * (FPR * (1 - d.)) + 
-        3 * mdr. * d. + 2 * fdr. * d.
+      # Average donation interval extension over all donors.
+      # The right parts of the terms sum to one.
+      a <- 1 * ((1 - FPR) * (1 - d.)) + # no extension, donors correctly predicted as accepted
+        male_interval_factor * mr. * (FPR * (1 - d.)) + female_interval_factor * fr. * (FPR * (1 - d.)) + # donors falsely predicted as deferred 
+        male_interval_factor * mdr. * d.              + female_interval_factor * fdr. * d.                # donors that are deferred or predicted as such 
       Fratio <- a / (1 + Fn. * (a - 1))
       Em <- Pm. * (Fratio - 1 - q * rl.)
       Ed <- Pd. * q
       E <- Em - Ed
       tibble(q=q, a=a, E=E, TPR=TPR, FPR=FPR)
     }
-    df6 <- get_cost2(TPR6, FPR6)
-    df12 <- get_cost2(TPR12, FPR12)
+    df6 <- get_cost2(TPR6, FPR6, 6)
+    df12 <- get_cost2(TPR12, FPR12, 12)
     names(df6) <- paste0(names(df6), "6")
     names(df12) <- paste0(names(df12), "12")
-    return(bind_cols(df6, df12))
-  } else {
-    q6 <- d. * TPR6
-    q12 <- d. * TPR12
-    a6 <- 1 * ((1 - FPR6) * (1 - d.)) +
-      3 * mr. * (FPR6 * (1 - d.)) + 2 * fr. * (FPR6 * (1 - d.)) +
-      3 * mdr. * d. + 2 * fdr. * d.
+    df <- bind_cols(df6, df12) %>% 
+      select(q6, q12, a6, a12, E6, E12, TPR6, FPR6, TPR12, FPR12)
+    return(df)
+  # } else {
+  #   q6 <- d. * TPR6
+  #   q12 <- d. * TPR12
+  #   a6  <- 1 * ((1 - FPR6) * (1 - d.)) +
+  #     3 * mr. * (FPR6  * (1 - d.)) + 2 * fr. * (FPR6 * (1 - d.)) +
+  #     3 * mdr. * d. + 2 * fdr. * d.
+  # 
+  #   a12 <- 1 * ((1 - FPR12) * (1 - d.)) +
+  #     6 * mr. * (FPR12 * (1 - d.)) + 4 * fr. * (FPR12 * (1 - d.)) +
+  #     6 * mdr. * d. + 4 * fdr. * d.
+  # 
+  #   # a6
+  #   Fratio <- a6 / (1 + Fn. * (a6 - 1))
+  #   Em <- Pm. * (Fratio - 1 - q6 * rl.)
+  #   Ed <- Pd. * q6
+  #   E6 <- Em - Ed
+  # 
+  #   # a12
+  #   Fratio <- a12 / (1 + Fn. * (a12 - 1))
+  #   Em <- Pm. * (Fratio - 1 - q12 * rl.)
+  #   Ed <- Pd. * q12
+  #   E12 <- Em - Ed
+  #   return(tibble(q6=q6, q12=q12, a6=a6, a12=a12, E6=E6, E12=E12, TPR6=TPR6, FPR6=FPR6, TPR12=TPR12, FPR12=FPR12))
+  #}
+}
 
-    a12 <- 1 * ((1 - FPR12) * (1 - d.)) +
-      6 * mr. * (FPR12 * (1 - d.)) + 4 * fr. * (FPR12 * (1 - d.)) +
-      6 * mdr. * d. + 4 * fdr. * d.
-
-    # a6
-    Fratio <- a6 / (1 + Fn. * (a6 - 1))
-    Em <- Pm. * (Fratio - 1 - q6 * rl.)
-    Ed <- Pd. * q6
-    E6 <- Em - Ed
-
-    # a12
-    Fratio <- a12 / (1 + Fn. * (a12 - 1))
-    Em <- Pm. * (Fratio - 1 - q12 * rl.)
-    Ed <- Pd. * q12
-    E12 <- Em - Ed
-    return(tibble(q6=q6, q12=q12, a6=a6, a12=a12, E6=E6, E12=E12, TPR6=TPR6, FPR6=FPR6, TPR12=TPR12, FPR12=FPR12))
-  }
+get_rates <- function(df, threshold) {  # Gets true and false positive rates (TPR and FPR)
+  #classify predictions
+  pred.class <- factor(ifelse(df$Deferred >= threshold, "Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
+  #get TPR and FPR
+  conf <- caret::confusionMatrix(reference=df$obs, data=pred.class, positive = "Deferred", mode="sens_spec")
+  TPR <- unname(conf$byClass['Sensitivity']) 
+  FPR <- unname(1 - conf$byClass['Specificity'])
+  return(list(TPR=TPR,FPR=FPR))
 }
 
 get_optimal_thresholds <- function(df, p=parameters, thresholds = seq(0.1, .9, .1)) {
   
-  pred.classes <- data.frame(matrix(nrow=nrow(df),ncol=length(thresholds)))
-  colnames(pred.classes) <- paste0("p_",thresholds)
-  for (t in thresholds ) {
-    colname <- paste0("p_",t)
-    pred.classes[, colname] <- factor(ifelse(df$Deferred >= t ,"Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
-  }
+  # pred.classes <- data.frame(matrix(nrow=nrow(df),ncol=length(thresholds)))
+  # colnames(pred.classes) <- paste0("p_",thresholds)
+  # for (t in thresholds ) {
+  #   colname <- paste0("p_",t)
+  #   pred.classes[, colname] <- factor(ifelse(df$Deferred >= t ,"Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
+  # }
+  # 
+  # # Count TPR and FPR for each probability cut-off
+  # 
+  # 
+  # sen <- vector()
+  # spe <- vector()
+  # for(i in names(pred.classes)) {
+  #   conf <- caret::confusionMatrix(reference=df$obs, data=pred.classes[,i], positive = "Deferred", mode="everything")
+  #   #Sensitivity  = TPR
+  #   sen <- c(sen,conf$byClass['Sensitivity']) 
+  #   spe <- c(spe, 1 - conf$byClass['Specificity']) 
+  # }
   
-  # Count TPR and FPR for each probability cut-off
+  tprs <- map_dfr(thresholds, function(t) get_rates(df, t))
+  tprs$probability = thresholds
   
-  
-  sen <- vector()
-  spe <- vector()
-  for(i in names(pred.classes)) {
-    conf <- caret::confusionMatrix(reference=df$obs, data=pred.classes[,i], positive = "Deferred", mode="everything")
-    #Sensitivity  = TPR
-    sen <- c(sen,conf$byClass['Sensitivity']) 
-    spe <- c(spe, 1 - conf$byClass['Specificity']) 
-  }
-  tprs <- tibble(probability = thresholds, TPR=unname(sen), FPR=unname(spe))
-  #print(tprs)
-  #  tprs <- tprs %>% group_by(probability,TPR,FPR) %>%  do(get_cost(.$TPR,.$FPR) )
   tprs <- tprs %>% rowwise() %>% mutate(get_cost(TPR, FPR, TPR, FPR, p)) %>% ungroup()
   #print(tprs)
   row <- tprs %>% slice_min(E6, with_ties=FALSE)
@@ -273,6 +290,7 @@ get_raw_result_list <- function(id) {
 }
 
 # The result dataframes are stored in various places and forms. This gets them in uniform manner. 
+# The returned dataframe has columns Deferred (probability of deferral) and obs (Accepted/Deferred)
 get_data_frame <- function(id) {
   
   process <- function(df) { 
@@ -340,30 +358,30 @@ get_data_frame <- function(id) {
 
 
 # Rates from random forest
-get_rf_rates <- function() {
-  TPR <- 1662/(1662 + 454) #78.5%
-  FPR <- 9137 / (31719 + 9137) # 22.4%
-  return(list(TPR=TPR,FPR=FPR))
-}
+# get_rf_rates <- function() {
+#   TPR <- 1662/(1662 + 454) #78.5%
+#   FPR <- 9137 / (31719 + 9137) # 22.4%
+#   return(list(TPR=TPR,FPR=FPR))
+# }
 
 # Rates and other parameters from random forest for different probability thresholds
-get_rf_rates2 <- function(threshold) {
-  params <- tibble::tribble(
-    ~probability,  ~TPR,   ~FPR,     ~q,  ~a6, ~a12,    ~E6,   ~E12,
-    0.1, 0.983,  0.672, 0.0322,    2, 3.68, -0.317,    1.8,
-    0.2, 0.949,  0.508,  0.031, 1.76, 3.05, -0.599,   1.15,
-    0.3, 0.909,  0.394, 0.0297,  1.6, 2.62, -0.771,  0.684,
-    0.4, 0.855,    0.3,  0.028, 1.47, 2.26,  -0.88,  0.308,
-    0.5, 0.785,  0.224, 0.0257, 1.36, 1.97, -0.923, 0.0256,
-    0.6,  0.71,   0.16, 0.0232, 1.27, 1.73, -0.925, -0.188,
-    0.7, 0.618,  0.114, 0.0202,  1.2, 1.55, -0.856, -0.284,
-    0.8, 0.517,  0.079, 0.0169, 1.15, 1.41, -0.745, -0.304,
-    0.9, 0.401, 0.0571, 0.0131, 1.12, 1.33, -0.571, -0.214
-  )
-  df <- params %>% filter(probability==threshold)
-  return(list(TPR=df$TPR, FPR=df$FPR))
-  
-}
+# get_rf_rates2 <- function(threshold) {
+#   params <- tibble::tribble(
+#     ~probability,  ~TPR,   ~FPR,     ~q,  ~a6, ~a12,    ~E6,   ~E12,
+#     0.1, 0.983,  0.672, 0.0322,    2, 3.68, -0.317,    1.8,
+#     0.2, 0.949,  0.508,  0.031, 1.76, 3.05, -0.599,   1.15,
+#     0.3, 0.909,  0.394, 0.0297,  1.6, 2.62, -0.771,  0.684,
+#     0.4, 0.855,    0.3,  0.028, 1.47, 2.26,  -0.88,  0.308,
+#     0.5, 0.785,  0.224, 0.0257, 1.36, 1.97, -0.923, 0.0256,
+#     0.6,  0.71,   0.16, 0.0232, 1.27, 1.73, -0.925, -0.188,
+#     0.7, 0.618,  0.114, 0.0202,  1.2, 1.55, -0.856, -0.284,
+#     0.8, 0.517,  0.079, 0.0169, 1.15, 1.41, -0.745, -0.304,
+#     0.9, 0.401, 0.0571, 0.0131, 1.12, 1.33, -0.571, -0.214
+#   )
+#   df <- params %>% filter(probability==threshold)
+#   return(list(TPR=df$TPR, FPR=df$FPR))
+#   
+# }
 
 
 
@@ -438,18 +456,10 @@ get_auroc <- function(df) {
 boot_cost <- function(boot_data, boot_ind, f1_threshold, threshold6 = 0.6, threshold12 = 0.8, p){
   #sample
   boot_data <- boot_data[boot_ind,]       # a sample of the original data
-  get_rates <- function(bootdata, threshold) {  # Gets true and false positive rates (TPR and FPR)
-    #classify predictions
-    pred.class <- factor(ifelse(boot_data$Deferred >= threshold, "Deferred", "Accepted"), levels=c("Accepted", "Deferred"))
-    #get TPR and FPR
-    conf <- caret::confusionMatrix(reference=boot_data$obs, data=pred.class, positive = "Deferred", mode="sens_spec")
-    TPR <- unname(conf$byClass['Sensitivity']) 
-    FPR <- unname(1 - conf$byClass['Specificity'])
-    return(list(TPR=TPR,FPR=FPR))
-  }
-  #get cost
-  r6 <- get_rates(bootdata, threshold6)
-  r12 <- get_rates(bootdata, threshold12)
+
+    #get cost
+  r6 <- get_rates(boot_data, threshold6)
+  r12 <- get_rates(boot_data, threshold12)
 
   costs <- get_cost(TPR6=r6$TPR, FPR6=r6$FPR, TPR12=r12$TPR, FPR12=r12$FPR, p)
   costs <- costs %>% select("E6", "E12")
@@ -513,14 +523,20 @@ get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold
   fit_boot <- boot(df, f1_threshold=f1_threshold, threshold6=threshold6, threshold12=threshold12, p=parameters, 
                    statistic = boot_cost, R = n.boot, parallel="multicore", ncpus=4)
   cis <- compute_cis(fit_boot, conf=0.95, method=method)
-  cis <- cis %>% filter(variable %in% c("E6", "E12", "F1", "AUPR", "AUROC")) %>% pivot_longer(cols=c(value, CI_low, CI_high), names_to="type")
+  cis <- cis %>% 
+    filter(variable %in% c("E6", "E12", "F1", "AUPR", "AUROC")) %>% 
+    pivot_longer(cols=c(value, CI_low, CI_high), names_to="type")
   return(cis)
 }
 
-# id (string) is the name of the data.
-# conf is the wanted confidence level
-# method is either "norm", "basic", "perc", or "bca"
-# n.boot tells the number of bootstrap replications. If it is NULL, then as many replicates are used as there are rows in the data 'df'
+# Input:
+# - df contains prediction results from a single algorithm
+# - id (string) is the name of the data.
+# - conf is the wanted confidence level
+# - method is either "norm", "basic", "perc", or "bca"
+# - n.boot tells the number of bootstrap replications. If it is NULL, then as many replicates are used as there are rows in the data 'df'
+# Output:
+# - dataframe in long form, for contents, see the next function
 process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000) {
   message(id)
   #thresholds <- seq(0.1, 0.9, 0.1)  # thresholds for probability of deferral
@@ -528,19 +544,24 @@ process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000) {
   f1_threshold <- 0.5
   
   res <-  get_optimal_thresholds(df, thresholds = thresholds) # These thresholds are for cost effect computation (E6 and E12)
-  #f1 <- get_f1(df, threshold=f1_threshold) # Let boot.ci compute these instead
-  #aupr <- get_aupr(df)
-  #auroc <- get_auroc(df)
-  
-  values <- tibble(variable=c(#"E6", "E12", "F1", "AUPR", "AUROC", 
+
+  # Thresholds
+  threshold_df <- tibble(variable=c(#"E6", "E12", "F1", "AUPR", "AUROC", 
                               "threshold6", "threshold12"), 
                    type="value", 
                    value=c(#res$E6, res$E12, f1, aupr, auroc, 
                            res$threshold6, res$threshold12))
-  cis <- get_confidence_intervals(df, f1_threshold=f1_threshold, threshold6 = res$threshold6, threshold12 = res$threshold12, conf=conf, method=method, n.boot=n.boot)
-  return(bind_rows(values, cis))
+  # Rest variables with their CIs
+  cis <- get_confidence_intervals(df, f1_threshold=f1_threshold, threshold6 = res$threshold6, threshold12 = res$threshold12, 
+                                  conf=conf, method=method, n.boot=n.boot)
+  return(bind_rows(threshold_df, cis))
 }
 
+# The main function in this file.
+# Returns a dataframe in long form where for each data/method pair there is
+# - threhold6 and threshold12 for probability of deferral
+# - E6 and E12 economic effect per donation and 95% CIs
+# - F1, AUPR, and AUROC values and CIs
 process_all_data <- function(ids, conf=0.95, method="norm", n.boot=2000) {
   data_frames <- map(ids, get_data_frame)
   results <- map2(data_frames, ids, process_data, conf=conf, method=method, n.boot=n.boot)  # Process each dataframe
@@ -575,6 +596,11 @@ pr_wrapper <- function(df, method="norm", boot.n=2000) {
   df <- df %>% rename(scores = Deferred, labels=obs) %>% mutate(labels = ifelse(labels=="Accepted", 0, 1))
   return(create_precision_recall_new(df$labels, df$scores, method=method, boot.n=boot.n))
 }
+
+
+
+# Below are cost surface drawing related functions
+
 cost_func <- function(q, atot, Pm, Pd, F, Fn, rloss) {Pm * ((F*atot) / (F + Fn*(atot-1)) - 1 - q*rloss) - Pd*q}
 
 cost_func_simplified <- function(q, atot) {2 / ((1-0.1066)/atot + 0.1066)  - 2 - 60*q}
@@ -606,13 +632,18 @@ compute_gradient_of_cost <- function(q=0.015, atot=1.5, Pm=2, Pd=60, F=1, Fn=0.1
 }
 
 # Draw the cost surface on parameters q and atot
-draw_surface <- function() {
+draw_surface <- function(scale=FALSE) {
   n <- 1000
+  d <- 0.032
   df <- tibble(atot=seq(1, 2, length.out = n), 
-               q=seq(0, 0.032, length.out = n))
-  df <- df %>% expand(atot, q)
-  df <- df %>% mutate(E = cost_func_simplified(q, atot))
+               q=seq(0, d, length.out = n))
+  df <- df %>% 
+    expand(atot, q) %>% 
+    mutate(E = cost_func_simplified(q, atot))
   
+  if (scale) {  # scale to range [0,1]
+    df <- df %>% mutate(q=q/d)
+  }
   g <- df %>% ggplot(aes(x=q, y=atot, fill=E)) +
     geom_raster()
   return(g)
@@ -622,8 +653,9 @@ draw_surface <- function() {
 draw_gradient <- function() {
   mylength <- function(L) sqrt(L[1]^2 + L[2]^2)
   n <- 100
+  d <- 0.032
   df <- tibble(atot=seq(1, 2, length.out = n), 
-               q=seq(0, 0.032, length.out = n))
+               q=seq(0, d, length.out = n))
   df <- df %>% expand(atot, q)
   func <- myoperator2(cost_func_simplified)
   df <- df %>% mutate(G = map2_dbl(q, atot, function(x, y) mylength(numDeriv::grad(func, c(x, y)))))

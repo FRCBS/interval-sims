@@ -82,14 +82,14 @@ dummy_predictor2 <- function(train, validate) {  # real logistic regression
 
 ```
 
-```{r}
+```{r, eval=FALSE}
 df1 <- make_threshold_conversion_data_frame(125, -1) 
 df2 <- make_threshold_conversion_data_frame(125, -0.1)
 df <- bind_rows(`k=-1`=df1, `k=-0.1`= df2, .id="k")
 df %>% ggplot(aes(x=Hb, y=Probability, color=k)) + geom_point() + scale_y_continuous(breaks=seq(0, 1, by=0.1)) + labs(colour="Logistic function parameter") + ggtitle("Female")
 ```
 
-```{r}
+```{r, eval=FALSE}
 df1 <- make_threshold_conversion_data_frame(135, -1) 
 df2 <- make_threshold_conversion_data_frame(135, -0.1)
 df <- bind_rows(`k=-1`=df1, `k=-0.1`= df2, .id="k")
@@ -110,14 +110,14 @@ test_male <- test %>% filter(gender=="Men")
 ```{r}
 use_logistic_regression=TRUE
 if (use_logistic_regression) {
-  res <- dummy_predictor2(train_female, test_female)
-  prediction_female <- res$result
-  fit_female <- res$fit
+  res_female <- dummy_predictor2(train_female, test_female)
+  prediction_female <- res_female$result
+  fit_female <- res_female$fit
   
-  res <- dummy_predictor2(train_male, test_male)
-  prediction_male <- res$result
-  fit_male <- res$fit
-} else {
+  res_male <- dummy_predictor2(train_male, test_male)
+  prediction_male <- res_male$result
+  fit_male <- res_male$fit
+} else {  # Old way was to do it by hand using logistic function
   prediction_female <- dummy_predictor(validate_female, 125)  # or would mean Hb be better centering point than deferral threshold
   prediction_male <- dummy_predictor(validate_male, 135)
 }
@@ -135,7 +135,8 @@ if (FALSE) {
 ```
 
 ```{r}
-dummy_result <- suppressMessages(process_all_data(dummy2_ids, replicates=100))
+#dummy_result <- suppressMessages(process_all_data(dummy2_ids, replicates=100))
+dummy_result <- suppressMessages(process_all_data(dummy2_ids))
 ```
 
 ```{r}
@@ -186,7 +187,42 @@ roc_male
 pr_male$pr_plot
 ```
 
+Compute the effects of applying baseline model. This needs still some cleanup.
 
+
+```{r}
+result_male <- res_male$result %>% mutate(prediction=as.factor(ifelse(Deferred>0.36, "Deferred", "Accepted")))
+result_female <- res_female$result %>% mutate(prediction=as.factor(ifelse(Deferred>0.64, "Deferred", "Accepted")))
+```
+
+```{r}
+summary(result_male)
+```
+
+```{r}
+summary(result_female)
+```
+
+```{r}
+nm <- nrow(result_male)
+nf <- nrow(result_female)
+md <- sum(result_male$obs=="Deferred")
+fd <- sum(result_female$obs=="Deferred")
+cat(sprintf("Men deferred %i (%.2f%%)\n", md, md/nm*100))
+cat(sprintf("Women deferred %i (%.2f%%)\n", fd, fd/nf*100))
+
+md2 <- sum(result_male$obs=="Deferred" & result_male$prediction=="Accepted")
+fd2 <- sum(result_female$obs=="Deferred" & result_female$prediction=="Accepted")
+cat(sprintf("Men deferred %i (%.2f%%)\n", md2, md2/nm*100))
+cat(sprintf("Women deferred %i (%.2f%%)\n", fd2, fd2/nf*100))
+
+```
+```{r}
+mextension <- sum(result_male$prediction=="Deferred")
+fextension <- sum(result_female$prediction=="Deferred")
+cat(sprintf("Men extended for 6 months %i (%.2f%%)\n", mextension, mextension/nm*100))
+cat(sprintf("Women extended for 6 months %i (%.2f%%)\n", fextension, fextension/nf*100))
+```
 
 
 
