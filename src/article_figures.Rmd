@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 source("economic_effect_functions.R")
 library(knitr)
 library(tidyverse)
-save_figs = TRUE
+save_figs = FALSE
 fig_path="~/FRCBS/results-for-eba-paper/pdf"
 ```
 
@@ -109,7 +109,9 @@ get_rf_df <- function(rrfFit_roc, descript, combined_variables) {
   rrfFit.varimp <- left_join(combined_variables, rrfFit.varimp, by="Pretty")
   return(rrfFit.varimp)  
 }
+```
 
+```{r, eval=FALSE}
 # Creates a forest plot of means and confidence intervals from posterior distributions.
 # Puts both male and female results in the same plot.
 create_double_forest_plot <- function(male_posterior, female_posterior, variables, combined_variables, base_size = 11) {
@@ -332,6 +334,7 @@ all_ids <- c(ids, dummy2_ids)
 
 get_name_of_data <- function(s) {
   s <- str_split_fixed(s, "-", 3)[,1]  # Extract the name of the data set
+  # Note that recode stupidly uses order "old"="new"
   s <- recode(s, "progesa" = "eProgesa", "finngen" = "Biobank", "findonor" = "FinDonor")  # Prettify
   # s <- map(s, function(x) when(x, 
   #                              x == "progesa" ~ "eProgesa",
@@ -405,12 +408,12 @@ create_performance_forest_plot <- function() {
   g <- df %>% ggplot(aes(y=Id, x=value, xmin=low, xmax=high)) + 
     ggstance::geom_pointrangeh(aes(colour=sex, shape=model, fill=model)) + 
     #geom_pointrange(aes(colour=sex, fill=sex, shape=model), key_glyph = draw_key_rect) + 
-    labs(x="Value", y="Data and method", colour="Sex", shape="Model", fill="Deferral length") + 
+    labs(x="Value", y="Data and model", colour="Sex", shape="Model", fill="Deferral length") + 
     scale_y_discrete(labels=get_name_of_data) +
     scale_colour_discrete(breaks = c("male", "female", "both"), labels=c("Male", "Female", "Both")) +
     scale_fill_manual(breaks=c("t6", "t12"), labels=c("Six months", "Twelve months"), values=1:7) + #breaks = new_names) +
     scale_shape_manual(breaks=c("lmm", "dlmm", "dt", "rf", "dummy"),
-                       labels=c("Linear mixed model", "Dynamic linear mixed model", "Decision tree", "Random forest", "Dummy"),
+                       labels=c("Linear mixed model", "Dynamic linear mixed model", "Decision tree", "Random forest", "Baseline"),
                        values=c("square", "circle", "triangle", "diamond", "plus", "cross", "asterisk")) +
     # scale_fill_manual(breaks=c("lmm", "dlmm", "dt", "rf"), 
     #                    labels=c("Linear mixed model", "Dynamic linear mixed model", "Decision tree", "Random forest"),
@@ -509,15 +512,34 @@ create_classification_scatter_plot <- function(df, hb_threshold, probability_of_
   if (is.null(probability_of_deferral_threshold)) { # predict deferral based on Hb
     df <- df %>% 
       mutate(new_predicted_label= ifelse(predicted < hb_threshold, 1, 0))
+    prediction_threshold <- hb_threshold
   } else { # predict deferral based on probability of deferral
     df <- df %>% 
       mutate(new_predicted_label= ifelse(scores >= probability_of_deferral_threshold, 1, 0))
+    prediction_threshold <- min(df %>% filter(scores <= probability_of_deferral_threshold) %>% pull(predicted))
   }
+  
+  cat(sprintf("Prediction threshold is %.1f\n", prediction_threshold))
+  
+  # Get the R2 correlation
+  r2 <- summary(lm(predicted ~ observed, data=df))$r.squared
+  r2_text <- sprintf("%.2f", r2)
+  
   df <- df %>%
     mutate(confusion_class = factor(ifelse(deferral == 1, 
                                     ifelse(new_predicted_label == 1, "True positive", "False negative"),
                                     ifelse(new_predicted_label == 1, "False positive", "True negative")),
            levels=c("True positive", "False negative", "False positive", "True negative")))
+  
+  n <- nrow(df)
+  fp <- sum(df$confusion_class=="False positive")
+  tp <- sum(df$confusion_class=="True positive")
+  deferrals <- nrow(df %>% filter(confusion_class %in% c("True positive", "False negative")))
+  accepted <- n - deferrals
+  
+  cat(sprintf("Incorrectly predicting %.1f%% of accepted donations as deferrals\n", 100*fp/accepted))
+  cat(sprintf("Correctly predicting %.1f%% of deferred donations as deferrals\n", 100*tp/deferrals))
+  
   scatter_plot <- ggplot(df, aes(x = observed, y=predicted, color = confusion_class)) +
     geom_point() +
     #xlim(xymin,xymax) + ylim(xymin,xymax) +
@@ -529,7 +551,8 @@ create_classification_scatter_plot <- function(df, hb_threshold, probability_of_
     #scale_colour_discrete(labels=c("Accepted", "Deferred")) +
     geom_smooth(mapping=aes(x = observed, y=predicted), colour="black", show.legend = FALSE) +
     geom_vline(xintercept = hb_threshold, linetype = "dashed") +
-    geom_hline(yintercept = hb_threshold, linetype = "dashed") +
+    geom_hline(yintercept = prediction_threshold, linetype = "dashed") +
+    annotate("text", x=120, y=190, color="black", label=bquote(R^2==.(r2_text)), fontface="bold") +
     theme(legend.position = "bottom")
     #ggtitle("Observed vs predicted Hb-values")
   return(scatter_plot)
@@ -544,7 +567,7 @@ finngenn_male_raw <- get_raw_result_list("finngen-male-dlmm")
 
 ```{r}
 g1 <- create_classification_scatter_plot(finngenn_male_raw$comp_df, 135, NULL)
-g2 <- create_classification_scatter_plot(finngenn_male_raw$comp_df, 135, 0.1)
+g2 <- create_classification_scatter_plot(finngenn_male_raw$comp_df, 135, 0.04)
 if (save_figs) {
   ggsave(filename="classification-scatter-plot-hb-finngen-male-dlmm.pdf", title="Classifiction scatter plot finngen-male-dlmm", path=fig_path, 
          plot=g1, dpi=600, units="mm", width=180)
@@ -582,5 +605,30 @@ df2 <- df %>%
 kable(df2, digits=2)
 ```
 
+Create a table of atot and TPR and FPR values for each method/data. Q is the fraction of avoided deferrals.
+
+```{r}
+#data_frames <- map(dummy2_ids, get_data_frame)
+df2 <- df %>% select(Id, threshold6, threshold12)  # Get the optimal thresholds
+```
+
+```{r}
+helper <- function(Id, threshold6, threshold12) {
+  df2 <- get_data_frame(Id)
+  r6 <- get_rates(df2, threshold6)
+  r12 <- get_rates(df2, threshold12)
+  df <- get_cost(r6$TPR, r6$FPR, r12$TPR, r12$FPR, p = parameters)
+  #df <- tibble(a=1, b=2)
+  df$Id <- Id
+  return(df %>% select(Id, everything()))  
+}
+
+d <- get_mikkos_cost_constants()$d  # Fraction of deferrals of all donors
+result <- pmap_dfr(df2, helper) 
+result <- result %>%
+  mutate(across(c(q6, q12), function(x) x / d)) %>%
+  rename(Q6=q6, Q12=q12)
+kable(result, digits=3)
+```
 
 
