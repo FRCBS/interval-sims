@@ -9,10 +9,10 @@ library(boot)
 ids <- c("progesa-male-lmm", "progesa-female-lmm", "progesa-male-dlmm", "progesa-female-dlmm", "finngen-male-dlmm", "finngen-female-dlmm", 
          "findonor-male-dlmm", "findonor-female-dlmm", "progesa-both-dt", "progesa-both-rf")
 
-dummy2_ids <- c("progesa-male-dummy", "progesa-female-dummy")
-dummy_ids <- c("finngen-male-stratified", "finngen-male-most-frequent", "finngen-male-prior", "finngen-male-uniform", "finngen-male-deferred")
+dummy_ids <- c("progesa-male-dummy", "progesa-female-dummy")
+dummy2_ids <- c("finngen-male-stratified", "finngen-male-most-frequent", "finngen-male-prior", "finngen-male-uniform", "finngen-male-deferred")
 
-all_ids <- c(ids, dummy2_ids)
+all_ids <- c(ids, dummy_ids)
 
 # These are from Progesa data
 get_mikkos_cost_constants <- function() {
@@ -141,7 +141,7 @@ get_cost_constants <- function(data) {
 
 
 #get_cost <- function(TPR6, FPR6, TPR12, FPR12, d.=d, mr.=mr, fr.=fr, mdr.=mdr, fdr.=fdr, Pm.=Pm, Pd.=Pd, Fn.=Fn, rl.=rl) {
-get_cost <- function(TPR6, FPR6, TPR12, FPR12, p = parameters) {
+get_cost <- function(TPR6, FPR6, TPR12, FPR12, sex, p = parameters) {
   d.=p$d
   mr.=p$mr
   fr.=p$fr
@@ -152,53 +152,84 @@ get_cost <- function(TPR6, FPR6, TPR12, FPR12, p = parameters) {
   Fn.=p$Fn
   rl.=p$rl
   
-#  if (TRUE) {  # This version has less repetition
-    get_cost2 <- function(TPR, FPR, new_interval_length) {
-      male_interval_factor   <- new_interval_length / 2
-      female_interval_factor <- new_interval_length / 3
-      q <- d. * TPR
-      # Average donation interval extension over all donors.
-      # The right parts of the terms sum to one.
-      a <- 1 * ((1 - FPR) * (1 - d.)) + # no extension, donors correctly predicted as accepted
-        male_interval_factor * mr. * (FPR * (1 - d.)) + female_interval_factor * fr. * (FPR * (1 - d.)) + # donors falsely predicted as deferred 
-        male_interval_factor * mdr. * d.              + female_interval_factor * fdr. * d.                # donors that are deferred or predicted as such 
-      Fratio <- a / (1 + Fn. * (a - 1))
-      Em <- Pm. * (Fratio - 1 - q * rl.)
-      Ed <- Pd. * q
-      E <- Em - Ed
-      tibble(q=q, a=a, E=E, TPR=TPR, FPR=FPR)
+  # OLD. DON'T USE! This assumes a common model for males and females
+  get_cost2 <- function(TPR, FPR, new_interval_length) {
+    male_interval_factor   <- new_interval_length / 2
+    female_interval_factor <- new_interval_length / 3
+    q <- d. * TPR
+    # Average donation interval extension over all donors.
+    # The right parts of the terms sum to one.
+    a <- 1 * ((1 - FPR) * (1 - d.)) + # no extension, donors correctly predicted as accepted
+      # Small eror below. mr. -> mar. and fr. -> far.
+      male_interval_factor * mr. * (FPR * (1 - d.)) + female_interval_factor * fr. * (FPR * (1 - d.)) + # donors falsely predicted as deferred 
+      male_interval_factor * mdr. * d.              + female_interval_factor * fdr. * d.                # donors that are deferred or predicted as such 
+    Fratio <- a / (1 + Fn. * (a - 1))
+    Em <- Pm. * (Fratio - 1 - q * rl.)
+    Ed <- Pd. * q
+    E <- Em - Ed
+    tibble(q=q, a=a, E=E, TPR=TPR, FPR=FPR)
+  }
+  # This assumes separate models for males and females
+  get_cost3 <- function(TPR, FPR, new_interval_length, sex) {
+    male_interval_factor   <- new_interval_length / 2
+    female_interval_factor <- new_interval_length / 3
+    stopifnot(male_interval_factor >= 1.0)
+    stopifnot(female_interval_factor >= 1.0)
+    #q <- d. * (mdr. * mTPR + fdr. * fTPR)
+    q <- case_when(
+      sex=="male"   ~ mdr. * TPR,
+      sex=="female" ~ fdr. * TPR,
+      sex=="both"   ~ TPR
+    )
+    # Average donation interval extension over all donors.
+    # The right parts of the terms sum to one.
+    mar. <- (mr. - mdr.*d.) / (1-d.)   # ratio of males among accepted
+    far. <- (fr. - fdr.*d.) / (1-d.)   # ratio of females among accepted
+    #print(mar.)
+    #print(far.)
+    helper <- function(factor, TPR, FPR, ar, dr, d) {
+      stopifnot(factor >= 1.0)
+      a <- 1 * (1 - FPR) * ar * (1 - d) +           # no extension, donors correctly predicted as accepted
+        factor * FPR * (ar * (1 - d))  +                # donors falsely predicted as deferred 
+        factor * dr * d                               # donors that are deferred or predicted as such 
+      return(a)
     }
-    df6 <- get_cost2(TPR6, FPR6, 6)
-    df12 <- get_cost2(TPR12, FPR12, 12)
-    names(df6) <- paste0(names(df6), "6")
-    names(df12) <- paste0(names(df12), "12")
-    df <- bind_cols(df6, df12) %>% 
-      select(q6, q12, a6, a12, E6, E12, TPR6, FPR6, TPR12, FPR12)
-    return(df)
-  # } else {
-  #   q6 <- d. * TPR6
-  #   q12 <- d. * TPR12
-  #   a6  <- 1 * ((1 - FPR6) * (1 - d.)) +
-  #     3 * mr. * (FPR6  * (1 - d.)) + 2 * fr. * (FPR6 * (1 - d.)) +
-  #     3 * mdr. * d. + 2 * fdr. * d.
-  # 
-  #   a12 <- 1 * ((1 - FPR12) * (1 - d.)) +
-  #     6 * mr. * (FPR12 * (1 - d.)) + 4 * fr. * (FPR12 * (1 - d.)) +
-  #     6 * mdr. * d. + 4 * fdr. * d.
-  # 
-  #   # a6
-  #   Fratio <- a6 / (1 + Fn. * (a6 - 1))
-  #   Em <- Pm. * (Fratio - 1 - q6 * rl.)
-  #   Ed <- Pd. * q6
-  #   E6 <- Em - Ed
-  # 
-  #   # a12
-  #   Fratio <- a12 / (1 + Fn. * (a12 - 1))
-  #   Em <- Pm. * (Fratio - 1 - q12 * rl.)
-  #   Ed <- Pd. * q12
-  #   E12 <- Em - Ed
-  #   return(tibble(q6=q6, q12=q12, a6=a6, a12=a12, E6=E6, E12=E12, TPR6=TPR6, FPR6=FPR6, TPR12=TPR12, FPR12=FPR12))
-  #}
+    #print(sex)
+    if (sex=="male") {
+      ma <- helper(male_interval_factor, TPR, FPR, mar., mdr., d.)
+      fa <- fr.   # No extension
+    } else if (sex=="female") {
+      ma <- mr.   # No extension
+      fa <- helper(female_interval_factor, TPR, FPR, far., fdr., d.)
+    } else {
+      ma <- helper(male_interval_factor,   TPR, FPR, mar., mdr., d.)
+      fa <- helper(female_interval_factor, TPR, FPR, far., fdr., d.)
+    }
+    # cat(sprintf("Male extension is %f\n", ma))
+    # cat(sprintf("Female extension is %f\n", fa))
+    a <- ma + fa
+    Fratio <- a / (1 + Fn. * (a - 1))
+    Em <- Pm. * (Fratio - 1 - d. * q * rl.)
+    Ed <- Pd. * d. * q
+    E <- Em - Ed
+    tibble(q=q, a=a, E=E, TPR=TPR, FPR=FPR)
+  }
+  if (sex=="both") {
+    df6 <- get_cost3(TPR6, FPR6, 6, "both")
+    df12 <- get_cost3(TPR12, FPR12, 12, "both")
+  } else if (sex=="male") {
+    df6  <- get_cost3(TPR6, FPR6, 6, "male")
+    df12 <- get_cost3(TPR12, FPR12, 12, "male")
+  } else if (sex == "female") {
+    df6  <- get_cost3(TPR6, FPR6, 6, "female")
+    df12 <- get_cost3(TPR12, FPR12, 12, "female")
+  } else stop()
+  names(df6) <- paste0(names(df6), "6")
+  names(df12) <- paste0(names(df12), "12")
+  df <- bind_cols(df6, df12) %>% 
+    select(q6, q12, a6, a12, E6, E12, TPR6, FPR6, TPR12, FPR12)
+  return(df)
+  
 }
 
 get_rates <- function(df, threshold) {  # Gets true and false positive rates (TPR and FPR)
@@ -211,7 +242,11 @@ get_rates <- function(df, threshold) {  # Gets true and false positive rates (TP
   return(list(TPR=TPR,FPR=FPR))
 }
 
-get_optimal_thresholds <- function(df, p=parameters, thresholds = seq(0.1, .9, .1)) {
+get_sex <- function(s) {
+  str_split(s, "-", simplify = TRUE)[,2]   # The second part is the sex
+}
+
+get_optimal_thresholds <- function(df, p=parameters, thresholds = seq(0.1, .9, .1), id=id) {
   
   # pred.classes <- data.frame(matrix(nrow=nrow(df),ncol=length(thresholds)))
   # colnames(pred.classes) <- paste0("p_",thresholds)
@@ -231,11 +266,11 @@ get_optimal_thresholds <- function(df, p=parameters, thresholds = seq(0.1, .9, .
   #   sen <- c(sen,conf$byClass['Sensitivity']) 
   #   spe <- c(spe, 1 - conf$byClass['Specificity']) 
   # }
-  
+  sex <- get_sex(id)
   tprs <- map_dfr(thresholds, function(t) get_rates(df, t))
   tprs$probability = thresholds
   
-  tprs <- tprs %>% rowwise() %>% mutate(get_cost(TPR, FPR, TPR, FPR, p)) %>% ungroup()
+  tprs <- tprs %>% rowwise() %>% mutate(get_cost(TPR, FPR, TPR, FPR, sex=sex, p=p)) %>% ungroup()
   #print(tprs)
   row <- tprs %>% slice_min(E6, with_ties=FALSE)
   E6 <- row %>% pull(E6)
@@ -384,7 +419,7 @@ get_data_frame <- function(id) {
 # }
 
 
-
+# Does not work at the moment
 test_get_cost <- function(name, threshold=0.5) {
   
   if (name == "computed_consts_linear_progesa") {
@@ -453,7 +488,7 @@ get_auroc <- function(df) {
           
 #boot code from https://github.com/FRCBS/changes_in_donor_health/blob/master/src/hypothesis_regressions.Rmd
 # boot_data is the original input dataframe and boot_ind is a set of indices that defines the sample used on this replicate.
-boot_cost <- function(boot_data, boot_ind, f1_threshold, threshold6 = 0.6, threshold12 = 0.8, p){
+boot_cost <- function(boot_data, boot_ind, f1_threshold, threshold6 = 0.6, threshold12 = 0.8, p, id){
   #sample
   boot_data <- boot_data[boot_ind,]       # a sample of the original data
 
@@ -461,8 +496,9 @@ boot_cost <- function(boot_data, boot_ind, f1_threshold, threshold6 = 0.6, thres
   r6 <- get_rates(boot_data, threshold6)
   r12 <- get_rates(boot_data, threshold12)
 
-  costs <- get_cost(TPR6=r6$TPR, FPR6=r6$FPR, TPR12=r12$TPR, FPR12=r12$FPR, p)
-  costs <- costs %>% select("E6", "E12")
+  sex <- get_sex(id)
+  costs <- get_cost(TPR6=r6$TPR, FPR6=r6$FPR, TPR12=r12$TPR, FPR12=r12$FPR, sex=sex, p)
+  costs <- costs %>% select("E6", "E12", "a6", "a12", "q6", "q12")
   costs <- unlist(costs)
   
   # Compute the F1 score using threshold 0.5
@@ -516,15 +552,15 @@ compute_cis <-function(fit_boot, conf = 0.95, method="norm"){
   return(tibble(variable = names(fit_boot$t0), value, CI_low, CI_high))
 }
 
-get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8, conf=0.95, method="norm", n.boot=2000) {
+get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8, conf=0.95, method="norm", n.boot=2000, id) {
   if (is.null(n.boot)) {
     n.boot <- nrow(df)  # as many replications as there are data rows
   }
-  fit_boot <- boot(df, f1_threshold=f1_threshold, threshold6=threshold6, threshold12=threshold12, p=parameters, 
+  fit_boot <- boot(df, f1_threshold=f1_threshold, threshold6=threshold6, threshold12=threshold12, p=parameters, id=id,
                    statistic = boot_cost, R = n.boot, parallel="multicore", ncpus=4)
   cis <- compute_cis(fit_boot, conf=0.95, method=method)
   cis <- cis %>% 
-    filter(variable %in% c("E6", "E12", "F1", "AUPR", "AUROC")) %>% 
+    filter(variable %in% c("E6", "E12", "F1", "AUPR", "AUROC", "a6", "a12", "q6", "q12")) %>% 
     pivot_longer(cols=c(value, CI_low, CI_high), names_to="type")
   return(cis)
 }
@@ -537,13 +573,13 @@ get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold
 # - n.boot tells the number of bootstrap replications. If it is NULL, then as many replicates are used as there are rows in the data 'df'
 # Output:
 # - dataframe in long form, for contents, see the next function
-process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000) {
+process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000, threshold_range) {
   message(id)
   #thresholds <- seq(0.1, 0.9, 0.1)  # thresholds for probability of deferral
-  thresholds <- seq(0.02, 0.98, 0.02)  # thresholds for probability of deferral
+  
   f1_threshold <- 0.5
   
-  res <-  get_optimal_thresholds(df, thresholds = thresholds) # These thresholds are for cost effect computation (E6 and E12)
+  res <-  get_optimal_thresholds(df, thresholds = threshold_range, id=id) # These thresholds are for cost effect computation (E6 and E12)
 
   # Thresholds
   threshold_df <- tibble(variable=c(#"E6", "E12", "F1", "AUPR", "AUROC", 
@@ -553,7 +589,7 @@ process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000) {
                            res$threshold6, res$threshold12))
   # Rest variables with their CIs
   cis <- get_confidence_intervals(df, f1_threshold=f1_threshold, threshold6 = res$threshold6, threshold12 = res$threshold12, 
-                                  conf=conf, method=method, n.boot=n.boot)
+                                  conf=conf, method=method, n.boot=n.boot, id=id)
   return(bind_rows(threshold_df, cis))
 }
 
@@ -562,9 +598,11 @@ process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000) {
 # - threhold6 and threshold12 for probability of deferral
 # - E6 and E12 economic effect per donation and 95% CIs
 # - F1, AUPR, and AUROC values and CIs
-process_all_data <- function(ids, conf=0.95, method="norm", n.boot=2000) {
+process_all_data <- function(ids, conf=0.95, method="norm", n.boot=2000,
+                             threshold_range = seq(0.02, 0.98, 0.02)  # thresholds for probability of deferral                           
+                             ) {
   data_frames <- map(ids, get_data_frame)
-  results <- map2(data_frames, ids, process_data, conf=conf, method=method, n.boot=n.boot)  # Process each dataframe
+  results <- map2(data_frames, ids, process_data, conf=conf, method=method, n.boot=n.boot, threshold_range=threshold_range)  # Process each dataframe
   names(results) <- ids
   df <- bind_rows(results, .id="Id") %>%
     mutate(type=recode(type, "CI_low" = "low", "CI_high" = "high"))
@@ -601,9 +639,9 @@ pr_wrapper <- function(df, method="norm", boot.n=2000) {
 
 # Below are cost surface drawing related functions
 
-cost_func <- function(q, atot, Pm, Pd, F, Fn, rloss) {Pm * ((F*atot) / (F + Fn*(atot-1)) - 1 - q*rloss) - Pd*q}
+cost_func <- function(q, atot, Pm, Pd, F, Fn, rloss, d) {Pm * ((F*atot) / (F + Fn*(atot-1)) - 1 - d*q*rloss) - Pd*d*q}
 
-cost_func_simplified <- function(q, atot) {2 / ((1-0.1066)/atot + 0.1066)  - 2 - 60*q}
+cost_func_simplified <- function(q, atot) {2 / ((1-0.1066)/atot + 0.1066)  - 2 - 60*0.03269718*q}
 
 myoperator2 <- function(f) {
   function(L) { f(L[1], L[2])}  
@@ -632,11 +670,11 @@ compute_gradient_of_cost <- function(q=0.015, atot=1.5, Pm=2, Pd=60, F=1, Fn=0.1
 }
 
 # Draw the cost surface on parameters q and atot
-draw_surface <- function(scale=FALSE) {
+draw_surface <- function(scale=FALSE, results=NULL) {
   n <- 1000
   d <- 0.032
   df <- tibble(atot=seq(1, 2, length.out = n), 
-               q=seq(0, d, length.out = n))
+               q=seq(0, 1, length.out = n))
   df <- df %>% 
     expand(atot, q) %>% 
     mutate(E = cost_func_simplified(q, atot))
@@ -645,7 +683,33 @@ draw_surface <- function(scale=FALSE) {
     df <- df %>% mutate(q=q/d)
   }
   g <- df %>% ggplot(aes(x=q, y=atot, fill=E)) +
-    geom_raster()
+    geom_raster() +
+    stat_contour(mapping=aes(z=E), color = "white", size = 0.7, binwidth =  1) +
+    scale_fill_gradientn(colours=c("blue", "red")) +
+    labs(x="Rate of avoided deferrals q", y=expression(Donation~interval~coefficient~a[tot])) +
+    theme_bw()
+  
+  if (!is.null(results)) {   # Show points and confidence intervals of E, a, and q.
+    results <- results %>%
+      filter(#Id=="progesa-both-rf",
+             variable %in% c("E6", "E12", "a6", "a12", "q6", "q12")) %>%
+      extract(col=variable, regex = "([a-zA-Z]+)([0-9]+)", into=c("variable", "month")) %>% 
+      mutate(month=as.integer(month)) %>%
+      pivot_wider(names_from=c(variable, type))
+    print(results)
+    g <- g +
+      geom_text(data=results, mapping=aes(x = q_value, 
+                        y = a_value-0.05,
+                        #label = paste0("6 mo: ", round(tprs$E6[which(tprs$E6 == min(tprs$E6))],2),' (',round(deframe(p6.ci[4,2]),2)," – ",round(deframe(p6.ci[4,3]),2),') €'  )),
+                        label = sprintf("%i mo: %.2f (%.2f – %.2f) €", month, E_value, E_low, E_high)),
+                        inherit.aes = FALSE,
+                        colour = "white") +
+      geom_point(data=results, mapping=aes(x=q_value, y=a_value), inherit.aes = FALSE, size=3, color="white", alpha=1) +
+      geom_linerange(data=results, mapping=aes(x=q_value, ymin=a_low, ymax=a_high), inherit.aes = FALSE, size=1) +
+      geom_linerange(data=results, mapping=aes(y=a_value, xmin=q_low, xmax=q_high), inherit.aes = FALSE, size=1) +
+      labs(fill="Cost effect (€ / donation)") +
+      theme(legend.position="bottom")
+  }
   return(g)
 }
 

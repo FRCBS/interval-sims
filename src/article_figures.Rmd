@@ -14,6 +14,7 @@ library(knitr)
 library(tidyverse)
 save_figs = FALSE
 fig_path="~/FRCBS/results-for-eba-paper/pdf"
+table_path="~/FRCBS/results-for-eba-paper/table"
 ```
 
 ```{r, include=FALSE}
@@ -607,28 +608,65 @@ kable(df2, digits=2)
 
 Create a table of atot and TPR and FPR values for each method/data. Q is the fraction of avoided deferrals.
 
-```{r}
+```{r, Get optimal thresholds}
 #data_frames <- map(dummy2_ids, get_data_frame)
-df2 <- df %>% select(Id, threshold6, threshold12)  # Get the optimal thresholds
+compute=TRUE
+if (compute) {
+  threshold_range <- seq(0.02, 0.98, 0.02)
+  data_frames <- map(all_ids, get_data_frame)
+  thresholds <- map2_dfr(data_frames, all_ids, function(df, id) get_optimal_thresholds(df, parameters, threshold_range, id)) %>%
+    mutate(Id=all_ids) %>%
+    select(Id, threshold6, threshold12)
+} else {
+  thresholds <- df %>% select(Id, threshold6, threshold12)  # Get the optimal thresholds
+}
 ```
 
 ```{r}
 helper <- function(Id, threshold6, threshold12) {
-  df2 <- get_data_frame(Id)
-  r6 <- get_rates(df2, threshold6)
-  r12 <- get_rates(df2, threshold12)
-  df <- get_cost(r6$TPR, r6$FPR, r12$TPR, r12$FPR, p = parameters)
+  df3 <- get_data_frame(Id)
+  r6 <- get_rates(df3, threshold6)
+  r12 <- get_rates(df3, threshold12)
+  sex <- get_sex(Id)
+  df <- get_cost(r6$TPR, r6$FPR, r12$TPR, r12$FPR, sex=sex, p = parameters)
   #df <- tibble(a=1, b=2)
   df$Id <- Id
   return(df %>% select(Id, everything()))  
 }
 
 d <- get_mikkos_cost_constants()$d  # Fraction of deferrals of all donors
-result <- pmap_dfr(df2, helper) 
+result <- pmap_dfr(thresholds, helper) 
 result <- result %>%
   mutate(across(c(q6, q12), function(x) x / d)) %>%
-  rename(Q6=q6, Q12=q12)
+  inner_join(thresholds, by="Id")
+  #rename(Q6=q6, Q12=q12)
 kable(result, digits=3)
 ```
+
+Get all variables and their confidence intervals
+
+```{r}
+  all_results <- process_all_data(all_ids)
+  filename <- sprintf("%s/raw-data-2021-06-10.tsv", table_path)
+  write_tsv(all_results, file=filename)
+```
+Same results in wide format xlsx
+```{r}
+library(openxlsx)
+temp <- all_results %>% pivot_wider(names_from=c(variable, type))
+filename <- sprintf("%s/pretty-data-2021-06-10.xlxs", table_path)
+openxlsx::write.xlsx(temp, file = filename, overwrite=TRUE)
+```
+
+```{r}
+g <- draw_surface(results=all_results %>% filter(Id == "progesa-both-rf"))
+if (save_figs) {
+  filename <- sprintf("%s/cme_cost_surface_werr.pdf", fig_path)
+  ggsave(filename=filename,  width = 180,  height = 120, units="mm", dpi=600, scale=1.0, device=cairo_pdf)
+}
+g
+```
+
+
 
 
