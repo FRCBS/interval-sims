@@ -9,7 +9,7 @@ library(boot)
 ids <- c("progesa-male-lmm", "progesa-female-lmm", "progesa-male-dlmm", "progesa-female-dlmm", "finngen-male-dlmm", "finngen-female-dlmm", 
          "findonor-male-dlmm", "findonor-female-dlmm", "progesa-both-dt", "progesa-both-rf")
 
-dummy_ids <- c("progesa-male-dummy", "progesa-female-dummy")
+dummy_ids <- c("progesa-male-baseline", "progesa-female-baseline")
 dummy2_ids <- c("finngen-male-stratified", "finngen-male-most-frequent", "finngen-male-prior", "finngen-male-uniform", "finngen-male-deferred")
 
 all_ids <- c(ids, dummy_ids)
@@ -246,6 +246,15 @@ get_sex <- function(s) {
   str_split(s, "-", simplify = TRUE)[,2]   # The second part is the sex
 }
 
+get_thresholds <- function(df,  p=parameters, thresholds = seq(0.1, .9, .1), id=id) {
+  sex <- get_sex(id)
+  tprs <- map_dfr(thresholds, function(t) get_rates(df, t))
+  tprs$probability = thresholds
+  
+  tprs <- tprs %>% rowwise() %>% mutate(get_cost(TPR, FPR, TPR, FPR, sex=sex, p=p), Id=id) %>% ungroup()
+  return(tprs)
+}
+
 get_optimal_thresholds <- function(df, p=parameters, thresholds = seq(0.1, .9, .1), id=id) {
   
   # pred.classes <- data.frame(matrix(nrow=nrow(df),ncol=length(thresholds)))
@@ -266,11 +275,9 @@ get_optimal_thresholds <- function(df, p=parameters, thresholds = seq(0.1, .9, .
   #   sen <- c(sen,conf$byClass['Sensitivity']) 
   #   spe <- c(spe, 1 - conf$byClass['Specificity']) 
   # }
-  sex <- get_sex(id)
-  tprs <- map_dfr(thresholds, function(t) get_rates(df, t))
-  tprs$probability = thresholds
+
+  tprs <- get_thresholds(df, p, thresholds, id)
   
-  tprs <- tprs %>% rowwise() %>% mutate(get_cost(TPR, FPR, TPR, FPR, sex=sex, p=p)) %>% ungroup()
   #print(tprs)
   row <- tprs %>% slice_min(E6, with_ties=FALSE)
   E6 <- row %>% pull(E6)
@@ -353,10 +360,10 @@ get_data_frame <- function(id) {
     df <- as_tibble(load_single("~/FRCBS/interval-sims/rrfFit__dtree_roc_test_probs.rdata"))
     df <- df %>% mutate(obs = factor(ifelse(obs == 2, "Deferred", "Accepted"), levels=c("Accepted", "Deferred")))
     return(df)
-  } else if (id == "progesa-female-dummy") {
+  } else if (id == "progesa-female-baseline") {
     df <- load_single("~/FRCBS/interval-sims/progesa-validate-female-dummy2.rdata")
     return(df)
-  } else if (id == "progesa-male-dummy") {
+  } else if (id == "progesa-male-baseline") {
     df <- load_single("~/FRCBS/interval-sims/progesa-validate-male-dummy2.rdata")
     return(df)
   } else if (id == "finngen-male-stratified") {
@@ -498,7 +505,7 @@ boot_cost <- function(boot_data, boot_ind, f1_threshold, threshold6 = 0.6, thres
 
   sex <- get_sex(id)
   costs <- get_cost(TPR6=r6$TPR, FPR6=r6$FPR, TPR12=r12$TPR, FPR12=r12$FPR, sex=sex, p)
-  costs <- costs %>% select("E6", "E12", "a6", "a12", "q6", "q12")
+  costs <- costs %>% select("E6", "E12", "a6", "a12", "q6", "q12", "TPR6", "TPR12", "FPR6", "FPR12")
   costs <- unlist(costs)
   
   # Compute the F1 score using threshold 0.5
@@ -560,7 +567,7 @@ get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold
                    statistic = boot_cost, R = n.boot, parallel="multicore", ncpus=4)
   cis <- compute_cis(fit_boot, conf=0.95, method=method)
   cis <- cis %>% 
-    filter(variable %in% c("E6", "E12", "F1", "AUPR", "AUROC", "a6", "a12", "q6", "q12")) %>% 
+    filter(variable %in% c("E6", "E12", "F1", "AUPR", "AUROC", "a6", "a12", "q6", "q12", "TPR6", "TPR12", "FPR6", "FPR12")) %>% 
     pivot_longer(cols=c(value, CI_low, CI_high), names_to="type")
   return(cis)
 }
