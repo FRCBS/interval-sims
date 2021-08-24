@@ -130,6 +130,20 @@ descript <- tibble(Variable = c("donor", "Hb", "days_to_previous_fb", "age", "pr
 Effect sizes of variables from eProgesa and Biobank using dynamic linear mixed model. In addition, variables
 importance from random forest algorithm.
 
+```{r Read FinnGen DLMM posteriors, include=FALSE}
+finngenn_male_raw <- get_raw_result_list("finngen-male-dlmm")
+finngenn_female_raw <- get_raw_result_list("finngen-female-dlmm")
+male_posterior <- finngenn_male_raw$samples
+female_posterior <- finngenn_female_raw$samples
+variables <- finngenn_male_raw$pretty_variable_names
+# Give a more descriptive name to this variable
+#variables <- replace(variables, variables=="Previous Hb deferral", "Previous donation deferred")
+variables <- recode(variables,    # Note that recode uses (stupidly) oldname = newname order, unlike many other functions in tidyverse
+                    `Previous Hb deferral` = "Previous donation deferred",
+                    `Polygenic risk score` = "Polygenic score",
+                    `RNF43 mutant` = "RNF43")
+```
+
 ```{r, include=FALSE}
 
 
@@ -285,19 +299,7 @@ create_forest_importance_plot <- function(male_posterior, female_posterior, vari
 }
 ```
 
-```{r Read FinnGen DLMM posteriors, include=FALSE}
-finngenn_male_raw <- get_raw_result_list("finngen-male-dlmm")
-finngenn_female_raw <- get_raw_result_list("finngen-female-dlmm")
-male_posterior <- finngenn_male_raw$samples
-female_posterior <- finngenn_female_raw$samples
-variables <- finngenn_male_raw$pretty_variable_names
-# Give a more descriptive name to this variable
-#variables <- replace(variables, variables=="Previous Hb deferral", "Previous donation deferred")
-variables <- recode(variables,    # Note that recode uses (stupidly) oldname = newname order, unlike many other functions in tidyverse
-                    `Previous Hb deferral` = "Previous donation deferred",
-                    `Polygenic risk score` = "Polygenic score",
-                    `RNF43 mutant` = "RNF43")
-```
+
 
 
 ```{r, eval=FALSE}
@@ -341,7 +343,38 @@ new_create_forest_importance_plot <- function(male_posterior, female_posterior, 
     mutate(method=factor(method, levels=c("Regression coefficient", "Importance"))) %>%
     select(-Importance, -Variable, stripe)
            
+  # Get pretty variable names in the order of female regression coefficients and secondarily by the importances
+  get_ordered_levels <- function(df) {
+    df <- df %>%
+      filter(gender %in% c("female", "both")) %>%
+      pivot_wider(id_cols=Pretty, names_from = method, values_from = mean) %>%
+      arrange(desc(`Regression coefficient`), desc("Importance"))
+    print(df)
+    v <- unique(as.character(df$Pretty))
+    return(v)
+  }
+  
+  # Get pretty variable names in the order of average regression coefficient over sex
+  get_ordered_levels2 <- function(df) {
+    df <- df %>%
+      #filter(method == "Regression coefficient") %>%
+      group_by(Pretty, method) %>%
+      summarise(mean=mean(mean), .groups="keep") %>%
+      ungroup() %>%
+      pivot_wider(id_cols=Pretty, names_from = method, values_from = mean) %>%
+      #mutate(`Regression coefficient`=replace_na(`Regression coefficient`, -1000)) %>%
+      arrange(desc(`Regression coefficient`), desc(Importance))
+    print(df)
+    v <- unique(as.character(df$Pretty))
+    return(v)
+  }
   #print(combined_variables)
+  
+  # Order the variables
+  new_levels <- get_ordered_levels2(final)
+  new_levels <- rev(new_levels)
+  print(new_levels)
+  final <- final %>% mutate(Pretty = fct_relevel(Pretty, new_levels))
   
   plot <- final %>% 
     ggplot() +     
@@ -383,107 +416,12 @@ g
 
 ```{r, include=FALSE}
 
-#all_ids <- c(ids, dummy_ids)
-
-get_name_of_data <- function(s) {
-  s <- str_split_fixed(s, "-", 3)[,1]  # Extract the name of the data set
-  # Note that recode stupidly uses order "old"="new"
-  s <- recode(s, "progesa" = "eProgesa", "finngen" = "Biobank", "findonor" = "FinDonor")  # Prettify
-  return(s)
-} 
-
-# Show AUROC, AUPR, F1, E6, and E12 as forest plot
-create_performance_forest_plot <- function() {
-  new_names <- c(`€/donation, 6 month deferral` = "E6", `€/donation, 12 month deferral` = "E12")
-  if (FALSE) {
-    # df1 <- read_csv("~/FRCBS/results-for-eba-paper/raw_data.csv")
-    # df2 <- read_csv("~/FRCBS/results-for-eba-paper/raw_data_dummy.csv")
-    # df <- bind_rows(df1, df2)
-    # #  new_names <- c(`Economic effect: 6 month deferral` = "E6", `Economic effect: 12 month deferral` = "E12")
-    # 
-    # df <- df %>%
-    #   mutate(Id=factor(Id, levels=rev(all_ids)),
-    #          type=factor(type, levels=c("AUROC", "AUPR", "F1", "E6", "E12")),
-    #          sex=factor(str_split_fixed(Id, "-", 3)[,2], levels=c("female", "both", "male")),
-    #          model=factor(str_split_fixed(Id, "-", 3)[,3])) %>%
-    #   mutate(type = fct_recode(type, !!!new_names))
-    # 
-    # thresholds <- get_threshold_df()
-    # df <- bind_rows(df, thresholds)
-    # df <- df %>% 
-    #   mutate(model = factor(model, levels=c("lmm", "dlmm", "dt", "rf", "dummy", "t6", "t12")))
-    #write_csv(df, path = "~/FRCBS/results-for-eba-paper/raw_data_all.csv")
-  } else {
-#    df <- read_csv("~/FRCBS/results-for-eba-paper/raw-data-2020-11-30.csv")
-#    df <- read_csv("~/FRCBS/results-for-eba-paper/raw-data-2020-12-01.csv")
-    df <- read_tsv(all_results_filename)
-
-    df <- df %>% 
-      filter(variable %in% c("AUROC", "AUPR", "F1", "E6", "E12", "threshold6", "threshold12")) %>%
-      pivot_wider(names_from=c("type"), values_from=value) %>%
-      mutate(low = ifelse(is.na(low), value, low),     # To make the plot work, copy low=high=value for thresholds
-             high = ifelse(is.na(high), value, high))
-    
-    df <- df %>%
-      mutate(Id=factor(Id, levels=rev(all_ids)),
-             sex=factor(str_split_fixed(Id, "-", 3)[,2], levels=c("female", "both", "male")),
-             model=case_when(variable == "threshold6" ~ "t6",
-                             variable == "threshold12" ~ "t12",
-                             TRUE ~ str_split_fixed(Id, "-", 3)[,3]),
-             model = factor(model, levels=c("lmm", "dlmm", "dt", "rf", "baseline", "t6", "t12")),
-             variable = recode(variable, "threshold6" = "Threshold", "threshold12" = "Threshold"),
-             variable = factor(variable, levels=c("AUROC", "AUPR", "F1", "E6", "E12", "Threshold")),
-             variable = fct_recode(variable, !!!new_names))
-             
-    
-  }
-  
-  # Below we use a dummy table and geom_blank to have the same xlimits for E6 and E12 panels
-  xrange <- as.numeric(df %>% filter(variable %in% names(new_names)) %>% summarise(low=min(low), high=max(high))) # range of x-axis for E6 and E12
-  xrange <- rep(xrange, 2)
-  mytype <- factor(rep(c("E6", "E12"), each=2), levels=c("AUROC", "AUPR", "F1", "E6", "E12"))
-  dummy <- tibble(Id="progesa-female-lmm", value=xrange, low=xrange, high=xrange, variable=mytype) # Dummy table to use the same x-axis limits for E6 and E12
-
-  dummy <- dummy %>%
-    mutate(variable = fct_recode(variable, !!!new_names))
-  #print(dummy)
-  #print(df)
-  
-  #key_size <- grid::convertX(theme_get()$legend.key.size, "mm", valueOnly=TRUE)
-  #print(key_size)
-  key_size <- 1.8   # This results in box of size 6 mm
-  #key_size <- unit(6.096, "mm")
-  #key_size <- unit(1.2, "lines")
-  #grid::convertX(grid::unit(1.2, "lines"), "mm")
-  g <- df %>% ggplot(aes(y=Id, x=value, xmin=low, xmax=high)) + 
-    ggstance::geom_pointrangeh(aes(colour=sex, shape=model, fill=model)) + 
-    #geom_pointrange(aes(colour=sex, fill=sex, shape=model), key_glyph = draw_key_rect) + 
-    labs(x="Value", y="Data and model", colour="Sex", shape="Model", fill="Deferral length") + 
-    scale_y_discrete(labels=get_name_of_data) +
-    scale_colour_discrete(breaks = c("male", "female", "both"), labels=c("Male", "Female", "Both")) +
-    scale_fill_manual(breaks=c("t6", "t12"), labels=c("Six months", "Twelve months"), values=1:7) + #breaks = new_names) +
-    scale_shape_manual(breaks=c("lmm", "dlmm", "dt", "rf", "baseline"),
-                       labels=c("Linear mixed model", "Dynamic linear mixed model", "Decision tree", "Random forest", "Baseline"),
-                       values=c("square", "circle", "triangle", "diamond", "plus", "cross", "asterisk")) +
-    # scale_fill_manual(breaks=c("lmm", "dlmm", "dt", "rf"), 
-    #                    labels=c("Linear mixed model", "Dynamic linear mixed model", "Decision tree", "Random forest"),
-    #                    values=c("square", "circle", "triangle", "diamond", "cross", "asterisk")) +
-    #scale_colour_manual(values = c("female" = 1, "male" = 2, "both" = 3)) +
-    guides(colour = guide_legend(override.aes = list(shape = 15, linetype=0, size=key_size)),
-           fill = guide_legend(override.aes = list(shape = c("cross", "asterisk"), linetype=0))) +
-    #guides(colour = guide_legend(override.aes = list(shape = 15, linetype=0))) +
-    #theme(legend.key.size = theme_get()$legend.key.size) +
-    geom_blank(data=dummy) +
-    facet_wrap("variable", scales="free_x") +
-    #theme(legend.position = "right", legend.direction = "vertical") 
-    theme(legend.position = "bottom", legend.direction = "vertical")
-  return(list(g=g, df=df))
-}
-
+source("article_figures_functions.R")
 ```
 
 ```{r}
-res <- create_performance_forest_plot()
+df <- read_tsv(all_results_filename)
+res <- create_performance_forest_plot(df)
 g <- res$g
 df <- res$df
 if (save_figs) {
@@ -562,10 +500,13 @@ create_classification_scatter_plot <- function(df, hb_threshold, probability_of_
   xymin <- min(min(df$predicted), min(df$observed))
   xymax <- max(max(df$predicted), max(df$observed))
   if (is.null(probability_of_deferral_threshold)) { # predict deferral based on Hb
+    hlinetype <- "dashed"
     df <- df %>% 
       mutate(new_predicted_label= ifelse(predicted < hb_threshold, 1, 0))
     prediction_threshold <- hb_threshold
   } else { # predict deferral based on probability of deferral
+    cat(sprintf("Probability threshold is %.2f\n", probability_of_deferral_threshold))
+    hlinetype <- "dotted"
     df <- df %>% 
       mutate(new_predicted_label= ifelse(scores >= probability_of_deferral_threshold, 1, 0))
     prediction_threshold <- min(df %>% filter(scores <= probability_of_deferral_threshold) %>% pull(predicted))
@@ -575,12 +516,21 @@ create_classification_scatter_plot <- function(df, hb_threshold, probability_of_
   
   # Get the R2 correlation
   r2 <- summary(lm(predicted ~ observed, data=df))$r.squared
+  #print(r2)
   r2_text <- sprintf("%.2f", r2)
+  cat(sprintf("R2 value is %s\n", r2_text))
   
   df <- df %>%
-    mutate(confusion_class = factor(ifelse(deferral == 1, 
-                                    ifelse(new_predicted_label == 1, "True positive", "False negative"),
-                                    ifelse(new_predicted_label == 1, "False positive", "True negative")),
+    mutate(confusion_class = factor(
+      case_when(
+        deferral == 1 & new_predicted_label == 1 ~ "True positive",
+        deferral == 1 & new_predicted_label == 0 ~ "False negative",
+        deferral == 0 & new_predicted_label == 1 ~ "False positive",
+        deferral == 0 & new_predicted_label == 0 ~ "True negative"
+      ),
+      # ifelse(deferral == 1, 
+      #        ifelse(new_predicted_label == 1, "True positive", "False negative"),
+      #        ifelse(new_predicted_label == 1, "False positive", "True negative")),
            levels=c("True positive", "False negative", "False positive", "True negative")))
   
   n <- nrow(df)
@@ -589,8 +539,8 @@ create_classification_scatter_plot <- function(df, hb_threshold, probability_of_
   deferrals <- nrow(df %>% filter(confusion_class %in% c("True positive", "False negative")))
   accepted <- n - deferrals
   
-  cat(sprintf("Incorrectly predicting %.1f%% of accepted donations as deferrals\n", 100*fp/accepted))
-  cat(sprintf("Correctly predicting %.1f%% of deferred donations as deferrals\n", 100*tp/deferrals))
+  cat(sprintf("Incorrectly predicting %.1f%% of accepted donations as deferrals (FPR)\n", 100*fp/accepted))
+  cat(sprintf("Correctly predicting %.1f%% of deferred donations as deferrals (TPR)\n", 100*tp/deferrals))
   
   scatter_plot <- ggplot(df, aes(x = observed, y=predicted, color = confusion_class)) +
     geom_point() +
@@ -603,8 +553,8 @@ create_classification_scatter_plot <- function(df, hb_threshold, probability_of_
     #scale_colour_discrete(labels=c("Accepted", "Deferred")) +
     geom_smooth(mapping=aes(x = observed, y=predicted), colour="black", show.legend = FALSE) +
     geom_vline(xintercept = hb_threshold, linetype = "dashed") +
-    geom_hline(yintercept = prediction_threshold, linetype = "dashed") +
-    annotate("text", x=120, y=190, color="black", label=bquote(R^2==.(r2_text)), fontface="bold") +
+    geom_hline(yintercept = prediction_threshold, linetype = hlinetype) +
+    annotate("text", x=xymin+10, y=xymax-10, color="black", label=bquote(R^2==.(r2_text)), fontface="bold") +
     theme(legend.position = "bottom")
     #ggtitle("Observed vs predicted Hb-values")
   return(scatter_plot)
@@ -613,13 +563,13 @@ create_classification_scatter_plot <- function(df, hb_threshold, probability_of_
 
 ```{r, include=FALSE}
 finngenn_male_raw <- get_raw_result_list("finngen-male-dlmm")
-
+finngenn_female_raw <- get_raw_result_list("finngen-female-dlmm")
 ```
 
 
-```{r}
+```{r Male scatter plot}
 g1 <- create_classification_scatter_plot(finngenn_male_raw$comp_df, 135, NULL)
-g2 <- create_classification_scatter_plot(finngenn_male_raw$comp_df, 135, 0.04)
+g2 <- create_classification_scatter_plot(finngenn_male_raw$comp_df, 135, 0.08)
 if (save_figs) {
   ggsave(filename="classification-scatter-plot-hb-finngen-male-dlmm.pdf", title="Classifiction scatter plot finngen-male-dlmm", path=fig_path, 
          plot=g1, dpi=600, units="mm", width=180)
@@ -629,6 +579,22 @@ if (save_figs) {
 g1
 g2
 ```
+
+
+```{r Female scatter plot}
+f1 <- create_classification_scatter_plot(finngenn_female_raw$comp_df, 125, NULL)
+f2 <- create_classification_scatter_plot(finngenn_female_raw$comp_df, 125, 0.02)
+if (save_figs) {
+  ggsave(filename="classification-scatter-plot-hb-finngen-female-dlmm.pdf", title="Classifiction scatter plot finngen-female-dlmm", path=fig_path, 
+         plot=f1, dpi=600, units="mm", width=180)
+  ggsave(filename="classification-scatter-plot-probability-finngen-female-dlmm.pdf", title="Classifiction scatter plot finngen-female-dlmm", path=fig_path, 
+         plot=f2, dpi=600, units="mm", width=180)
+}
+f1
+f2
+```
+
+
 
 Testing the effect of base_size parameter.
 

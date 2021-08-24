@@ -10,7 +10,7 @@ ids <- c("progesa-male-lmm", "progesa-female-lmm", "progesa-male-dlmm", "progesa
          "findonor-male-dlmm", "findonor-female-dlmm", "progesa-both-dt", "progesa-both-rf")
 
 dummy_ids <- c("progesa-male-baseline", "progesa-female-baseline")
-dummy2_ids <- c("finngen-male-stratified", "finngen-male-most-frequent", "finngen-male-prior", "finngen-male-uniform", "finngen-male-deferred")
+#dummy2_ids <- c("finngen-male-stratified", "finngen-male-most-frequent", "finngen-male-prior", "finngen-male-uniform", "finngen-male-deferred")
 
 all_ids <- c(ids, dummy_ids)
 
@@ -26,9 +26,9 @@ get_mikkos_cost_constants <- function() {
 }
 
 data_parameters <- get_mikkos_cost_constants()
-fixed_parameters <- list(Pm=2, Pd=60, Fn=0.1066, rl=0)
+fixed_parameters <- list(Pm=2, Pd=60, Fn=0.1066, rloss=0)
 
-parameters <- c(data_parameters, fixed_parameters)
+all_parameters <- c(data_parameters, fixed_parameters)
 
 load_single <- function(filename) {
   names <- load(filename, verbose=FALSE)
@@ -140,8 +140,18 @@ get_cost_constants <- function(data) {
 }
 
 
+cost_func <- function(q, atot, Pm, Pd, F, Fn, rloss, d) {Pm * ((F*atot) / (F + Fn*(atot-1)) - 1 - d*q*rloss) - Pd*d*q}
+
+cost_func_simplified <- function(q, atot) {2 / ((1-0.1066)/atot + 0.1066)  - 2 - 60*0.03269718*q}
+
+cost_func_factory <- function(Pm, Pd, F, Fn, rloss, d) {
+  function(q, atot) {
+    return(Pm * ((F*atot) / (F + Fn*(atot-1)) - 1 - d*q*rloss) - Pd*d*q)
+  }
+}
+
 #get_cost <- function(TPR6, FPR6, TPR12, FPR12, d.=d, mr.=mr, fr.=fr, mdr.=mdr, fdr.=fdr, Pm.=Pm, Pd.=Pd, Fn.=Fn, rl.=rl) {
-get_cost <- function(TPR6, FPR6, TPR12, FPR12, sex, p = parameters) {
+get_cost <- function(TPR6, FPR6, TPR12, FPR12, sex, p) {
   d.=p$d
   mr.=p$mr
   fr.=p$fr
@@ -150,7 +160,7 @@ get_cost <- function(TPR6, FPR6, TPR12, FPR12, sex, p = parameters) {
   Pm.=p$Pm
   Pd.=p$Pd
   Fn.=p$Fn
-  rl.=p$rl
+  rloss.=p$rloss
   
   # OLD. DON'T USE! This assumes a common model for males and females
   get_cost2 <- function(TPR, FPR, new_interval_length) {
@@ -164,7 +174,7 @@ get_cost <- function(TPR6, FPR6, TPR12, FPR12, sex, p = parameters) {
       male_interval_factor * mr. * (FPR * (1 - d.)) + female_interval_factor * fr. * (FPR * (1 - d.)) + # donors falsely predicted as deferred 
       male_interval_factor * mdr. * d.              + female_interval_factor * fdr. * d.                # donors that are deferred or predicted as such 
     Fratio <- a / (1 + Fn. * (a - 1))
-    Em <- Pm. * (Fratio - 1 - q * rl.)
+    Em <- Pm. * (Fratio - 1 - q * rloss.)
     Ed <- Pd. * q
     E <- Em - Ed
     tibble(q=q, a=a, E=E, TPR=TPR, FPR=FPR)
@@ -208,10 +218,11 @@ get_cost <- function(TPR6, FPR6, TPR12, FPR12, sex, p = parameters) {
     # cat(sprintf("Male extension is %f\n", ma))
     # cat(sprintf("Female extension is %f\n", fa))
     a <- ma + fa
-    Fratio <- a / (1 + Fn. * (a - 1))
-    Em <- Pm. * (Fratio - 1 - d. * q * rl.)
-    Ed <- Pd. * d. * q
-    E <- Em - Ed
+    # Fratio <- a / (1 + Fn. * (a - 1))
+    # Em <- Pm. * (Fratio - 1 - d. * q * rl.)
+    # Ed <- Pd. * d. * q
+    # E <- Em - Ed
+    E <- cost_func(q=q, atot=a, Pm=Pm., Pd=Pd., F=1, Fn=Fn., rloss=rloss., d=d.)
     tibble(q=q, a=a, E=E, TPR=TPR, FPR=FPR)
   }
   if (sex=="both") {
@@ -242,11 +253,12 @@ get_rates <- function(df, threshold) {  # Gets true and false positive rates (TP
   return(list(TPR=TPR,FPR=FPR))
 }
 
+# Extract sex from the id
 get_sex <- function(s) {
   str_split(s, "-", simplify = TRUE)[,2]   # The second part is the sex
 }
 
-get_thresholds <- function(df,  p=parameters, thresholds = seq(0.1, .9, .1), id=id) {
+get_thresholds <- function(df,  p, thresholds = seq(0.1, .9, .1), id=id) {
   sex <- get_sex(id)
   tprs <- map_dfr(thresholds, function(t) get_rates(df, t))
   tprs$probability = thresholds
@@ -255,7 +267,7 @@ get_thresholds <- function(df,  p=parameters, thresholds = seq(0.1, .9, .1), id=
   return(tprs)
 }
 
-get_optimal_thresholds <- function(df, p=parameters, thresholds = seq(0.1, .9, .1), id=id) {
+get_optimal_thresholds <- function(df, p, thresholds = seq(0.1, .9, .1), id=id) {
   
   # pred.classes <- data.frame(matrix(nrow=nrow(df),ncol=length(thresholds)))
   # colnames(pred.classes) <- paste0("p_",thresholds)
@@ -456,11 +468,11 @@ test_get_cost <- function(name, threshold=0.5) {
   #cat(TPR, "\n")
   #cat(FPR)
   q <- d * TPR
-  rl <- fixed_parameters$rl
+  rloss <- fixed_parameters$rloss
   Pm <- fixed_parameters$Pm
   Pd <- fixed_parameters$Pd
   Fn <- fixed_parameters$Fn
-  cost <- get_cost(TPR, FPR, d, mr, fr, mdr, fdr, Pm, Pd, Fn, rl)
+  cost <- get_cost(TPR, FPR, d, mr, fr, mdr, fdr, Pm, Pd, Fn, rloss)
   cost <- cost %>% mutate(name = name)
   return(cost)
   
@@ -504,7 +516,7 @@ boot_cost <- function(boot_data, boot_ind, f1_threshold, threshold6 = 0.6, thres
   r12 <- get_rates(boot_data, threshold12)
 
   sex <- get_sex(id)
-  costs <- get_cost(TPR6=r6$TPR, FPR6=r6$FPR, TPR12=r12$TPR, FPR12=r12$FPR, sex=sex, p)
+  costs <- get_cost(TPR6=r6$TPR, FPR6=r6$FPR, TPR12=r12$TPR, FPR12=r12$FPR, sex=sex, p=p)
   costs <- costs %>% select("E6", "E12", "a6", "a12", "q6", "q12", "TPR6", "TPR12", "FPR6", "FPR12")
   costs <- unlist(costs)
   
@@ -559,7 +571,8 @@ compute_cis <-function(fit_boot, conf = 0.95, method="norm"){
   return(tibble(variable = names(fit_boot$t0), value, CI_low, CI_high))
 }
 
-get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8, conf=0.95, method="norm", n.boot=2000, id) {
+get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold12=0.8, conf=0.95, method="norm", n.boot=2000, id,
+                                     parameters) {
   if (is.null(n.boot)) {
     n.boot <- nrow(df)  # as many replications as there are data rows
   }
@@ -580,13 +593,13 @@ get_confidence_intervals <- function(df, f1_threshold, threshold6=0.6, threshold
 # - n.boot tells the number of bootstrap replications. If it is NULL, then as many replicates are used as there are rows in the data 'df'
 # Output:
 # - dataframe in long form, for contents, see the next function
-process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000, threshold_range) {
+process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000, threshold_range, parameters) {
   message(id)
   #thresholds <- seq(0.1, 0.9, 0.1)  # thresholds for probability of deferral
   
   f1_threshold <- 0.5
   
-  res <-  get_optimal_thresholds(df, thresholds = threshold_range, id=id) # These thresholds are for cost effect computation (E6 and E12)
+  res <-  get_optimal_thresholds(df, p=parameters, thresholds = threshold_range, id=id) # These thresholds are for cost effect computation (E6 and E12)
 
   # Thresholds
   threshold_df <- tibble(variable=c(#"E6", "E12", "F1", "AUPR", "AUROC", 
@@ -596,7 +609,7 @@ process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000, threshol
                            res$threshold6, res$threshold12))
   # Rest variables with their CIs
   cis <- get_confidence_intervals(df, f1_threshold=f1_threshold, threshold6 = res$threshold6, threshold12 = res$threshold12, 
-                                  conf=conf, method=method, n.boot=n.boot, id=id)
+                                  conf=conf, method=method, n.boot=n.boot, id=id, parameters=parameters)
   return(bind_rows(threshold_df, cis))
 }
 
@@ -606,10 +619,12 @@ process_data <- function(df, id, conf=0.95, method="norm", n.boot=2000, threshol
 # - E6 and E12 economic effect per donation and 95% CIs
 # - F1, AUPR, and AUROC values and CIs
 process_all_data <- function(ids, conf=0.95, method="norm", n.boot=2000,
-                             threshold_range = seq(0.02, 0.98, 0.02)  # thresholds for probability of deferral                           
+                             threshold_range = seq(0.02, 0.98, 0.02),  # thresholds for probability of deferral                           
+                             parameters=all_parameters
                              ) {
   data_frames <- map(ids, get_data_frame)
-  results <- map2(data_frames, ids, process_data, conf=conf, method=method, n.boot=n.boot, threshold_range=threshold_range)  # Process each dataframe
+  results <- map2(data_frames, ids, process_data, 
+                  conf=conf, method=method, n.boot=n.boot, threshold_range=threshold_range, parameters=parameters)  # Process each dataframe
   names(results) <- ids
   df <- bind_rows(results, .id="Id") %>%
     mutate(type=recode(type, "CI_low" = "low", "CI_high" = "high"))
@@ -646,9 +661,6 @@ pr_wrapper <- function(df, method="norm", boot.n=2000) {
 
 # Below are cost surface drawing related functions
 
-cost_func <- function(q, atot, Pm, Pd, F, Fn, rloss, d) {Pm * ((F*atot) / (F + Fn*(atot-1)) - 1 - d*q*rloss) - Pd*d*q}
-
-cost_func_simplified <- function(q, atot) {2 / ((1-0.1066)/atot + 0.1066)  - 2 - 60*0.03269718*q}
 
 myoperator2 <- function(f) {
   function(L) { f(L[1], L[2])}  
@@ -677,14 +689,14 @@ compute_gradient_of_cost <- function(q=0.015, atot=1.5, Pm=2, Pd=60, F=1, Fn=0.1
 }
 
 # Draw the cost surface on parameters q and atot
-draw_surface <- function(scale=FALSE, results=NULL) {
+draw_surface <- function(scale=FALSE, results=NULL, cost_function = cost_func_simplified) {
   n <- 1000
   d <- 0.032
   df <- tibble(atot=seq(1, 2, length.out = n), 
                q=seq(0, 1, length.out = n))
   df <- df %>% 
     expand(atot, q) %>% 
-    mutate(E = cost_func_simplified(q, atot))
+    mutate(E = cost_function(q, atot))
   
   if (scale) {  # scale to range [0,1]
     df <- df %>% mutate(q=q/d)
