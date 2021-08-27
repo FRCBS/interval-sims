@@ -2,7 +2,8 @@
 
 Try the economic effect calculations with the new parameters values.
 
-    new_fixed_parameters <- list(Pm=2.287, Pd=18.08, F=1, Fn=0.1066, rloss=0)
+    new_fixed_parameters <- list(Pm=2.287, Pd=19.96, F=1, Fn=0.1066, rloss=0)
+    #new_fixed_parameters <- list(Pm=2.287, Pd=18.08, F=1, Fn=0.1066, rloss=0)
 
     new_parameters <- c(data_parameters, new_fixed_parameters)
     if (compute) {
@@ -28,10 +29,10 @@ The cost surface below is for the random forest on eProgesa data.
     g <- draw_surface(results=all_results %>% filter(Id == "progesa-both-rf"), cost_function=do.call(cost_func_factory, new_parameters[c("Pm", "Pd", "F", "Fn", "rloss", "d")]))
 
     ## # A tibble: 2 × 11
-    ##   Id      month E_value   E_low E_high a_value a_low a_high q_value q_low q_high
-    ##   <chr>   <int>   <dbl>   <dbl>  <dbl>   <dbl> <dbl>  <dbl>   <dbl> <dbl>  <dbl>
-    ## 1 proges…     6  0.0151 0.00162 0.0284    1.15  1.14   1.15   0.472 0.453  0.492
-    ## 2 proges…    12  0.392  0.376   0.408     1.27  1.26   1.27   0.236 0.220  0.252
+    ##   Id     month E_value   E_low  E_high a_value a_low a_high q_value q_low q_high
+    ##   <chr>  <int>   <dbl>   <dbl>   <dbl>   <dbl> <dbl>  <dbl>   <dbl> <dbl>  <dbl>
+    ## 1 proge…     6 -0.0139 -0.0281 1.02e-4    1.15  1.14   1.15   0.472 0.453  0.491
+    ## 2 proge…    12  0.378   0.361  3.95e-1    1.27  1.26   1.27   0.236 0.220  0.253
 
     if (save_figs) {
       filename <- sprintf("%s/cme_cost_surface_werr.pdf", fig_path)
@@ -56,10 +57,10 @@ The cost surface below is for the random forest on eProgesa data.
 
     ## Saving 180 x 127 mm image
 
-    ## Warning: Removed 2 rows containing missing values (geom_pointrangeh).
+    ## Warning: Removed 1 rows containing missing values (geom_pointrangeh).
 
     g
 
-    ## Warning: Removed 2 rows containing missing values (geom_pointrangeh).
+    ## Warning: Removed 1 rows containing missing values (geom_pointrangeh).
 
 ![](new_economic_parameters_files/figure-markdown_strict/Performance%20plot-1.png)
