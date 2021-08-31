@@ -13,12 +13,12 @@ source("economic_effect_functions.R")
 source("article_figures_functions.R")
 library(knitr)
 library(tidyverse)
-save_figs = TRUE
-save_tables = FALSE
+save_figs = FALSE
+#save_tables = FALSE
 dir <- "~/FRCBS/interval-sims/src/new_cost_parameters"
 fig_path <- dir
 table_path <- dir
-all_results_filename <- sprintf("%s/raw-data-2021-08-27.tsv", dir)
+all_results_filename <- sprintf("%s/raw-data-2021-08-31.tsv", dir)
 compute=FALSE
 ```
 

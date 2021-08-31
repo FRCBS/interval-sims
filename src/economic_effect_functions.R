@@ -365,7 +365,8 @@ get_data_frame <- function(id) {
     return(df)
   } else if (id == "progesa-both-rf") {
 #    df <- load_single("~/FRCBS/interval-sims/rrfFit_roc_validate_probs.rdata")
-    df <- load_single("~/FRCBS/interval-sims/rrfFit_roc_test_probs.rdata")
+#    df <- load_single("~/FRCBS/interval-sims/rrfFit_roc_test_probs.rdata")
+    df <- load_single("/home/toivoja/FRCBS/interval_prediction/oversampling_results/rrfFit_roc_test_probs.rdata")
     return(as_tibble(df))
   } else if (id == "progesa-both-dt") {
     #df <- as_tibble(load_single("~/FRCBS/interval-sims/rrfFit__dtree_roc_validate_probs.rdata"))
@@ -712,7 +713,7 @@ draw_surface <- function(scale=FALSE, results=NULL, cost_function = cost_func_si
     results <- results %>%
       filter(#Id=="progesa-both-rf",
              variable %in% c("E6", "E12", "a6", "a12", "q6", "q12")) %>%
-      extract(col=variable, regex = "([a-zA-Z]+)([0-9]+)", into=c("variable", "month")) %>% 
+      tidyr::extract(col=variable, regex = "([a-zA-Z]+)([0-9]+)", into=c("variable", "month")) %>% 
       mutate(month=as.integer(month)) %>%
       pivot_wider(names_from=c(variable, type))
     print(results)
