@@ -16,8 +16,11 @@ save_figs = FALSE
 save_tables = FALSE
 fig_path="~/FRCBS/results-for-eba-paper/pdf"
 table_path="~/FRCBS/results-for-eba-paper/table"
-all_results_filename <- sprintf("%s/raw-data-2021-06-11.tsv", table_path)
+all_results_filename <- sprintf("%s/raw-data-2021-09-03.tsv", table_path)
 compute=FALSE
+
+new_fixed_parameters <- list(Pm=2.287, Pd=20.342, F=1, Fn=0.1066, rloss=0.167)
+new_parameters <- c(data_parameters, new_fixed_parameters)
 ```
 
 Get all variables and their confidence intervals
@@ -30,6 +33,32 @@ if (compute) {
   all_results <- read_tsv(file=all_results_filename)  
 }
 ```
+The results with RF model:
+
+```{r}
+all_results %>% filter(Id=="progesa-both-rf", type=="value", variable %in% c("E6", "a6", "q6"))
+```
+
+
+## Combine the sex specific models
+
+What is the average interval extension, economic effect, and fraction of deferrals avoided, if
+we use both male and female models?
+
+```{r}
+tmp <- all_results %>% 
+  filter(str_detect(Id, "lmm"), type=="value", variable %in% c("E6", "a6", "q6")) %>% 
+  separate(Id, sep="-", into=c("data", "sex", "model"), remove=FALSE) %>% 
+  pivot_wider(names_from = variable, values_from = value)
+
+tmp %>% group_by(data, model) %>%
+  summarise(a6 = sum(a6) - 1,
+            E6 = sum(E6),
+            q6 = sum(q6)
+            )
+```
+
+
 
 Same results in wide format xlsx
 
@@ -37,13 +66,13 @@ Same results in wide format xlsx
 if (save_tables) {
   library(openxlsx)
   temp <- all_results %>% pivot_wider(names_from=c(variable, type))
-  filename <- sprintf("%s/pretty-data-2021-06-11.xlsx", table_path)
+  filename <- sprintf("%s/pretty-data-2021-09-03.xlsx", table_path)
   openxlsx::write.xlsx(temp, file = filename, overwrite=TRUE)
 }
 ```
 
 ```{r Cost surface}
-g <- draw_surface(results=all_results %>% filter(Id == "progesa-both-rf"))
+g <- draw_surface(results=all_results %>% filter(Id == "progesa-both-rf"), cost_function=do.call(cost_func_factory, new_parameters[c("Pm", "Pd", "F", "Fn", "rloss", "d")]))
 if (save_figs) {
   filename <- sprintf("%s/cme_cost_surface_werr.pdf", fig_path)
   ggsave(filename=filename,  width = 180,  height = 120, units="mm", dpi=600, scale=1.0, device=cairo_pdf)
@@ -55,7 +84,7 @@ g
 threshold_range <- seq(0.02, 0.98, 0.02)
 data_frames <- map(all_ids, get_data_frame)
 #get_thresholds <- function(df,  p=parameters, thresholds = seq(0.1, .9, .1), id=id)
-thresholds <- map2_dfr(data_frames, all_ids, function(df, id) get_thresholds(df, parameters, threshold_range, id))
+thresholds <- map2_dfr(data_frames, all_ids, function(df, id) get_thresholds(df, new_parameters, threshold_range, id))
 
 thresholds2 <- thresholds %>% 
   filter(Id=="progesa-both-rf") %>%
@@ -331,7 +360,8 @@ new_create_forest_importance_plot <- function(male_posterior, female_posterior, 
     mutate(Pretty=fct_rev(Pretty))
 
   # Get variable importances from the RF object
-  rrfFit_roc <- load_single("~/FRCBS/interval_prediction/results/rrfFit_roc.rdata")
+  rrfFit_roc <- load_single("~/FRCBS/interval_prediction/oversampling_results/rrfFit_roc.rdata")
+  #rrfFit_roc <- load_single("~/FRCBS/interval_prediction/results/rrfFit_roc.rdata")
   varimp <- get_rf_df(rrfFit_roc, descript, combined_variables)
   var_imp <- varimp %>%
     mutate(Pretty=fct_rev(Pretty),

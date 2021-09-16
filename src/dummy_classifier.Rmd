@@ -12,8 +12,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
 library(knitr)
-source("economic_effect_functions.R")
 source('../../Hb_predictor_container/src/validate_stan_fit.R', chdir=T)
+source("economic_effect_functions.R")
 ```
 
 ## Dummy model for females and males on Progesa data
@@ -30,7 +30,7 @@ load("~/FRCBS/interval-sims/rf-test-data.rdata", verbose=TRUE) # returns test da
 We use [Logistic function](https://en.wikipedia.org/wiki/Logistic_function) to map previous_Hb values to
 the probability range [0, 1].
 
-```{r cars}
+```{r Logistic regression functions}
 
 logistic <- function(x, k=1, x0=0) 1 / (1 + exp(-k*(x-x0)))
 
@@ -72,8 +72,8 @@ dummy_predictor2 <- function(train, validate) {  # real logistic regression
                       newdata = validate,
                       type = "response")
   
-  result <- tibble(Deferred = glm.probs, 
-                   obs = validate$Hb_deferral)
+  result <- tibble(score = glm.probs, 
+                   original_label = validate$Hb_deferral)
 
   return(list(result=result, fit=glm.fit))  
 }
@@ -82,14 +82,14 @@ dummy_predictor2 <- function(train, validate) {  # real logistic regression
 
 ```
 
-```{r, eval=FALSE}
+```{r Old logistic function plot to convert between Hb threshold and probability for females, eval=FALSE}
 df1 <- make_threshold_conversion_data_frame(125, -1) 
 df2 <- make_threshold_conversion_data_frame(125, -0.1)
 df <- bind_rows(`k=-1`=df1, `k=-0.1`= df2, .id="k")
 df %>% ggplot(aes(x=Hb, y=Probability, color=k)) + geom_point() + scale_y_continuous(breaks=seq(0, 1, by=0.1)) + labs(colour="Logistic function parameter") + ggtitle("Female")
 ```
 
-```{r, eval=FALSE}
+```{r  Old logistic function plot to convert between Hb threshold and probability for males, eval=FALSE}
 df1 <- make_threshold_conversion_data_frame(135, -1) 
 df2 <- make_threshold_conversion_data_frame(135, -0.1)
 df <- bind_rows(`k=-1`=df1, `k=-0.1`= df2, .id="k")
@@ -107,7 +107,7 @@ test_male <- test %>% filter(gender=="Men")
 
 
 
-```{r}
+```{r Fit logistic regression}
 use_logistic_regression=TRUE
 if (use_logistic_regression) {
   res_female <- dummy_predictor2(train_female, test_female)
@@ -134,12 +134,12 @@ if (FALSE) {
 }
 ```
 
-```{r}
+```{r Compute performance measures}
 #dummy_result <- suppressMessages(process_all_data(dummy2_ids, replicates=100))
-dummy_result <- suppressMessages(process_all_data(dummy2_ids))
+dummy_result <- suppressMessages(process_all_data(dummy_ids))
 ```
 
-```{r}
+```{r Show the result table}
 df <- dummy_result %>% 
   pivot_wider(names_from=c("variable", "type"), values_from=value, names_glue="{variable} {type}")
 names(df) <- str_remove(names(df), " value$")
@@ -180,6 +180,7 @@ pr_female <- pr_wrapper(prediction_female)
 roc_male <- roc_wrapper(prediction_male)
 pr_male <- pr_wrapper(prediction_male)
 ```
+
 ```{r}
 roc_female
 pr_female$pr_plot

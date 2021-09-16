@@ -18,7 +18,7 @@ save_figs = FALSE
 dir <- "~/FRCBS/interval-sims/src/new_cost_parameters"
 fig_path <- dir
 table_path <- dir
-all_results_filename <- sprintf("%s/raw-data-2021-08-31.tsv", dir)
+all_results_filename <- sprintf("%s/raw-data-2021-09-03.tsv", dir)
 compute=FALSE
 ```
 
@@ -27,7 +27,8 @@ compute=FALSE
 Try the economic effect calculations with the new parameters values.
 
 ```{r}
-new_fixed_parameters <- list(Pm=2.287, Pd=19.96, F=1, Fn=0.1066, rloss=0)
+new_fixed_parameters <- list(Pm=2.287, Pd=20.342, F=1, Fn=0.1066, rloss=0.167)
+#new_fixed_parameters <- list(Pm=2.287, Pd=19.96, F=1, Fn=0.1066, rloss=0.167)
 #new_fixed_parameters <- list(Pm=2.287, Pd=18.08, F=1, Fn=0.1066, rloss=0)
 
 new_parameters <- c(data_parameters, new_fixed_parameters)
@@ -42,7 +43,8 @@ if (compute) {
 The cost surface below is for the random forest on eProgesa data. 
 
 ```{r Cost surface}
-g <- draw_surface(results=all_results %>% filter(Id == "progesa-both-rf"), cost_function=do.call(cost_func_factory, new_parameters[c("Pm", "Pd", "F", "Fn", "rloss", "d")]))
+cost_function <- do.call(cost_func_factory, new_parameters[c("Pm", "Pd", "F", "Fn", "rloss", "d")])
+g <- draw_surface(results=all_results %>% filter(Id == "progesa-both-rf"), cost_function=cost_function)
 if (save_figs) {
   filename <- sprintf("%s/cme_cost_surface_werr.pdf", fig_path)
   ggsave(filename=filename,  width = 180,  height = 120, units="mm", dpi=600, scale=1.0, device=cairo_pdf)

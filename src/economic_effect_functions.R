@@ -258,6 +258,7 @@ get_sex <- function(s) {
   str_split(s, "-", simplify = TRUE)[,2]   # The second part is the sex
 }
 
+# Returns a dataframe with a row for each threshold
 get_thresholds <- function(df,  p, thresholds = seq(0.1, .9, .1), id=id) {
   sex <- get_sex(id)
   tprs <- map_dfr(thresholds, function(t) get_rates(df, t))

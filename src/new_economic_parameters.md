@@ -2,7 +2,8 @@
 
 Try the economic effect calculations with the new parameters values.
 
-    new_fixed_parameters <- list(Pm=2.287, Pd=19.96, F=1, Fn=0.1066, rloss=0)
+    new_fixed_parameters <- list(Pm=2.287, Pd=20.342, F=1, Fn=0.1066, rloss=0.167)
+    #new_fixed_parameters <- list(Pm=2.287, Pd=19.96, F=1, Fn=0.1066, rloss=0.167)
     #new_fixed_parameters <- list(Pm=2.287, Pd=18.08, F=1, Fn=0.1066, rloss=0)
 
     new_parameters <- c(data_parameters, new_fixed_parameters)
@@ -26,13 +27,14 @@ Try the economic effect calculations with the new parameters values.
 
 The cost surface below is for the random forest on eProgesa data.
 
-    g <- draw_surface(results=all_results %>% filter(Id == "progesa-both-rf"), cost_function=do.call(cost_func_factory, new_parameters[c("Pm", "Pd", "F", "Fn", "rloss", "d")]))
+    cost_function <- do.call(cost_func_factory, new_parameters[c("Pm", "Pd", "F", "Fn", "rloss", "d")])
+    g <- draw_surface(results=all_results %>% filter(Id == "progesa-both-rf"), cost_function=cost_function)
 
     ## # A tibble: 2 × 11
     ##   Id      month E_value   E_low E_high a_value a_low a_high q_value q_low q_high
     ##   <chr>   <int>   <dbl>   <dbl>  <dbl>   <dbl> <dbl>  <dbl>   <dbl> <dbl>  <dbl>
-    ## 1 proges…     6  -0.136 -0.149  -0.122    1.09  1.09   1.09   0.482 0.463  0.502
-    ## 2 proges…    12   0.100  0.0863  0.114    1.16  1.15   1.16   0.330 0.311  0.349
+    ## 1 proges…     6 -0.146  -0.159  -0.131    1.10  1.10   1.10   0.511 0.492  0.530
+    ## 2 proges…    12  0.0966  0.0831  0.110    1.15  1.15   1.15   0.307 0.289  0.324
 
     if (save_figs) {
       filename <- sprintf("%s/cme_cost_surface_werr.pdf", fig_path)
